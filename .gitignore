@@ -1,0 +1,33 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# next
+/.next/
+/out/
+
+# env
+.env*.local
+.env
+
+# debug
+npm-debug.log*
+
+# typescript
+next-env.d.ts
+*.tsbuildinfo
+
+# data
+/data/*.db
+/data/*.db-*
+/data/*.log
+/storage/exports/*
+/storage/media/*
+!/storage/exports/.gitkeep
+!/storage/media/.gitkeep
