@@ -2,18 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ChevronRight, FolderOpen, LogOut, Plus, Search, Share2, Clock } from "lucide-react";
+import { useUser } from "@clerk/nextjs";
+import { Archive, ChevronRight, FolderOpen, Plus, Search, Share2, Clock } from "lucide-react";
 import { api } from "@/lib/api";
-import { persistCollabToken } from "@/components/auth-forms";
 import { Banner, Logo } from "@/components/brand";
+import { AuthControls } from "@/components/auth-controls";
 import { TEMPLATE_ICONS } from "@/components/icons";
 import { Button } from "@/components/locus-ui";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { FadeIn, StaggerGrid, StaggerItem } from "@/components/motion/fade-in";
 import { TemplateTag } from "@/components/tag-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { BoardRecord, TemplateKind, TemplateRecord, UserRecord } from "@/lib/types";
+import { readRecentBoards, type RecentBoard } from "@/lib/recent-boards";
+import type { BoardRecord, TemplateKind, TemplateRecord } from "@/lib/types";
 
 const KINDS: Record<TemplateKind, string> = {
   uml: "UML",
@@ -24,38 +27,48 @@ const KINDS: Record<TemplateKind, string> = {
 
 export function DashboardView() {
   const router = useRouter();
-  const [user, setUser] = useState<UserRecord | null>(null);
+  const { user, isLoaded } = useUser();
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
   const [boardTab, setBoardTab] = useState<"mine" | "shared" | "recent">("mine");
   const [boards, setBoards] = useState<BoardRecord[]>([]);
+  const [sharedBoards, setSharedBoards] = useState<BoardRecord[]>([]);
+  const [recentBoards, setRecentBoards] = useState<RecentBoard[]>([]);
   const [templates, setTemplates] = useState<TemplateRecord[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    if (!isLoaded) return;
+    if (!user) {
+      router.replace("/sign-in");
+      return;
+    }
     async function boot() {
-      const me = await api<{ user: UserRecord | null; collabToken: string | null }>("/api/auth/me");
-      if (!me.user) {
-        router.replace("/login");
-        return;
-      }
-      persistCollabToken(me.collabToken);
-      setUser(me.user);
-      const [boardData, templateData] = await Promise.all([
-        api<{ boards: BoardRecord[] }>("/api/boards?status=active"),
+      const [boardData, sharedData, templateData] = await Promise.all([
+        api<{ boards: BoardRecord[] }>("/api/boards?status=active&scope=mine"),
+        api<{ boards: BoardRecord[] }>("/api/boards?status=active&scope=shared"),
         api<{ templates: TemplateRecord[] }>("/api/templates"),
       ]);
       setBoards(boardData.boards);
+      setSharedBoards(sharedData.boards);
+      setRecentBoards(readRecentBoards());
       setTemplates(templateData.templates);
     }
     void boot();
-  }, [router]);
+  }, [isLoaded, user, router]);
 
   async function load(status: "active" | "archived", q = query) {
     const data = await api<{ boards: BoardRecord[] }>(
-      `/api/boards?status=${status}&q=${encodeURIComponent(q)}`,
+      `/api/boards?status=${status}&scope=mine&q=${encodeURIComponent(q)}`,
     );
     setBoards(data.boards);
+  }
+
+  async function loadShared(q = query) {
+    const data = await api<{ boards: BoardRecord[] }>(
+      `/api/boards?status=active&scope=shared&q=${encodeURIComponent(q)}`,
+    );
+    setSharedBoards(data.boards);
   }
 
   async function createBoard(templateKind?: TemplateKind) {
@@ -82,9 +95,11 @@ export function DashboardView() {
 
   const filtered = useMemo(() => boards, [boards]);
 
-  if (!user) {
+  if (!isLoaded || !user) {
     return <div className="grid min-h-screen place-items-center text-slate">Opening your sketchbook…</div>;
   }
+
+  const displayName = user.fullName ?? user.primaryEmailAddress?.emailAddress ?? "You";
 
   return (
     <div className="min-h-screen">
@@ -92,15 +107,9 @@ export function DashboardView() {
       <header className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-5">
         <Logo />
         <div className="flex items-center gap-3">
-          <span className="text-[14px] text-slate">{user.name}</span>
-          <Button variant="ghost" className="inline-flex items-center gap-2" onClick={async () => {
-            await api("/api/auth/logout", { method: "POST" });
-            persistCollabToken(null);
-            router.push("/");
-          }}>
-            <LogOut className="h-4 w-4" aria-hidden />
-            Log out
-          </Button>
+          <ThemeToggle />
+          <span className="text-[14px] text-slate">{displayName}</span>
+          <AuthControls compact />
         </div>
       </header>
       <main className="mx-auto grid max-w-[1200px] gap-6 px-6 pb-16 lg:grid-cols-[300px_1fr]">
@@ -113,7 +122,12 @@ export function DashboardView() {
             <CardContent className="grid gap-4">
               <Tabs
                 value={boardTab}
-                onValueChange={(value) => setBoardTab(value as typeof boardTab)}
+                onValueChange={(value) => {
+                  const next = value as typeof boardTab;
+                  setBoardTab(next);
+                  if (next === "shared") void loadShared();
+                  if (next === "recent") setRecentBoards(readRecentBoards());
+                }}
               >
                 <TabsList className="grid w-full grid-cols-3 bg-ash-canvas">
                   <TabsTrigger value="mine" className="gap-1 text-[11px] data-active:bg-mint-pulse/30">
@@ -201,23 +215,74 @@ export function DashboardView() {
               </ul>
                 </>
               ) : boardTab === "shared" ? (
-                <div className="grid gap-3">
-                  <p className="rounded-xl border border-dashed border-warm-stone bg-ash-canvas/50 px-4 py-6 text-center text-[13px] text-slate">
-                    Boards shared with you will appear here.
-                  </p>
-                  <p className="text-center text-[11px] text-slate/70">
-                    Coming soon — collaborate on boards invited by teammates.
-                  </p>
-                </div>
+                <>
+                  <form
+                    className="relative"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void loadShared();
+                    }}
+                  >
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate" aria-hidden />
+                    <Input
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Search shared boards"
+                      aria-label="Search shared boards"
+                      enterKeyHint="search"
+                      className="h-10 rounded-lg pl-9"
+                    />
+                  </form>
+                  <ul className="grid gap-2">
+                    {sharedBoards.length === 0 ? (
+                      <li className="rounded-xl border border-dashed border-warm-stone px-3 py-5 text-center text-[13px] text-slate">
+                        No shared boards yet. Accept an invite or ask a teammate to share one with you.
+                      </li>
+                    ) : (
+                      sharedBoards.map((board) => (
+                        <li key={board.id}>
+                          <Card className="group ring-1 ring-foreground/6 transition hover:-translate-y-0.5 hover:ring-foreground/12 hover:shadow-md">
+                            <CardContent className="flex items-center justify-between gap-2 py-3">
+                              <button
+                                className="min-w-0 flex-1 text-left"
+                                onClick={() => router.push(`/board/${board.id}`)}
+                              >
+                                <p className="truncate text-[15px] font-medium">{board.title}</p>
+                                <p className="text-[11px] text-slate">Shared with you</p>
+                              </button>
+                            </CardContent>
+                          </Card>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                </>
               ) : (
-                <div className="grid gap-3">
-                  <p className="rounded-xl border border-dashed border-warm-stone bg-ash-canvas/50 px-4 py-6 text-center text-[13px] text-slate">
-                    Recently opened boards will appear here.
-                  </p>
-                  <p className="text-center text-[11px] text-slate/70">
-                    Coming soon — quick access to your latest workspaces.
-                  </p>
-                </div>
+                <ul className="grid gap-2">
+                  {recentBoards.length === 0 ? (
+                    <li className="rounded-xl border border-dashed border-warm-stone px-3 py-5 text-center text-[13px] text-slate">
+                      Open a board and it will show up here.
+                    </li>
+                  ) : (
+                    recentBoards.map((board) => (
+                      <li key={board.id}>
+                        <Card className="group ring-1 ring-foreground/6 transition hover:-translate-y-0.5 hover:ring-foreground/12 hover:shadow-md">
+                          <CardContent className="flex items-center justify-between gap-2 py-3">
+                            <button
+                              className="min-w-0 flex-1 text-left"
+                              onClick={() => router.push(`/board/${board.id}`)}
+                            >
+                              <p className="truncate text-[15px] font-medium">{board.title}</p>
+                              <p className="text-[11px] text-slate">
+                                Opened {new Date(board.openedAt).toLocaleString()}
+                              </p>
+                            </button>
+                          </CardContent>
+                        </Card>
+                      </li>
+                    ))
+                  )}
+                </ul>
               )}
             </CardContent>
           </Card>

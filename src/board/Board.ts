@@ -110,10 +110,31 @@ export class BoardManager {
         `SELECT b.id, b.owner_id, b.title, b.status, b.created_at, b.updated_at
          FROM boards b
          JOIN board_members m ON m.board_id = b.id
-         WHERE m.user_id = ? AND b.status = ? AND lower(b.title) LIKE ?
+         WHERE m.user_id = ? AND b.owner_id = ? AND b.status = ? AND lower(b.title) LIKE ?
          ORDER BY b.updated_at DESC`,
       )
-      .all(userId, status, like) as Array<{
+      .all(userId, userId, status, like) as Array<{
+      id: string;
+      owner_id: string;
+      title: string;
+      status: BoardStatus;
+      created_at: number;
+      updated_at: number;
+    }>;
+    return rows.map(mapBoard);
+  }
+
+  listSharedWithUser(userId: string, query: string, status: BoardStatus): BoardRecord[] {
+    const like = `%${query.trim().toLowerCase()}%`;
+    const rows = getDb()
+      .prepare(
+        `SELECT b.id, b.owner_id, b.title, b.status, b.created_at, b.updated_at
+         FROM boards b
+         JOIN board_members m ON m.board_id = b.id
+         WHERE m.user_id = ? AND b.owner_id != ? AND b.status = ? AND lower(b.title) LIKE ?
+         ORDER BY b.updated_at DESC`,
+      )
+      .all(userId, userId, status, like) as Array<{
       id: string;
       owner_id: string;
       title: string;

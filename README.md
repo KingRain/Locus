@@ -1,147 +1,91 @@
 # Locus
 
-A browser whiteboard for students and small teams. Draw shapes, leave comments, watch live cursors, and keep version history — without the enterprise fog.
+Browser-based real-time collaborative visual workspace. Base implementation of the SADD layered client-server design.
 
-Open [http://localhost:3000](http://localhost:3000) after starting the app, then register an account and create a board.
+## Layers
 
-## Features
+- **Presentation:** Next.js App Router UI (`src/app`)
+- **Application:** HTTPS JSON routes (`src/app/api`)
+- **Collaboration:** WebSocket server (`server/collaboration.ts`, port 3001)
+- **Persistence:** SQLite at `data/locus.db` plus files under `storage/`
 
-- **Diagram canvas** — select, pen, eraser, rectangles, ellipses, diamonds, lines, arrows, connectors, text, and sticky notes
-- **Live collaboration** — WebSocket presence, live cursors, and broadcasted edits
-- **Sharing** — invite by email as owner, editor, commenter, or viewer
-- **Comments** — threads on the board or on a specific element
-- **Version history** — capture snapshots, preview, and restore without destroying later work
-- **Templates** — UML class, flowchart, ER, and architecture starters
-- **SVG export** — download a board as SVG under `storage/exports`
-- **Auth** — register, sign in, cookie sessions, and local password recovery
-
-## Stack
-
-| Layer | Implementation |
-| --- | --- |
-| UI | Next.js 16 App Router, React 19, Tailwind CSS 4, shadcn/ui |
-| API | HTTPS JSON routes in `src/app/api` |
-| Collaboration | `ws` server in `server/collaboration.ts` (default port 3001) |
-| Database | Node.js built-in SQLite (`node:sqlite`) at `data/locus.db` |
-| Files | SVG exports and media under `storage/` |
-
-Requires **Node.js 22+** (`node:sqlite` is built in).
-
-## Quick start
+## Run locally
 
 ```bash
-git clone https://github.com/KingRain/Locus.git
-cd Locus
 npm install
+cp .env.example .env.local   # optional
 npm run dev
 ```
 
-That starts both processes:
+Open http://localhost:3000
 
-- Web app at [http://localhost:3000](http://localhost:3000)
-- Collaboration WebSocket at `ws://localhost:3001`
+## Environment
 
-### Scripts
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `NEXT_PUBLIC_COLLAB_URL` | `ws://localhost:3001` | WebSocket URL the browser uses for live edits |
+| `COLLAB_PORT` | `3001` | Collaboration server port |
+| `COLLAB_HOST` | `0.0.0.0` | Bind address (use `0.0.0.0` for tunnels) |
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Next.js (Turbopack) + collaboration server |
-| `npm run dev:web` | Web app only |
-| `npm run dev:wss` | Collaboration server only |
-| `npm run build` | Production Next.js build |
-| `npm start` | Serve the production build |
-| `npm run lint` | ESLint |
+## Collaboration over a public tunnel (laptop dev)
 
-### Environment
+For demos, run the collaboration server on your machine and expose port 3001 with **ngrok**, **Cloudflare Tunnel**, or **nginx** on your laptop.
 
-Optional. Defaults work for local development.
+### Option A — ngrok (simplest)
 
-| Variable | Default | Used by |
-| --- | --- | --- |
-| `COLLAB_PORT` | `3001` | Collaboration server |
-| `NEXT_PUBLIC_COLLAB_URL` | `ws://localhost:3001` | Browser WebSocket client |
+Terminal 1:
 
-Copy into `.env.local` if you need to change them. `.env` files are gitignored.
-
-## Using the app
-
-1. Register at `/register` (password must be at least 8 characters).
-2. From the dashboard, create a blank board or start from a template.
-3. Draw on the canvas. Invite teammates from the share panel.
-4. Capture versions from the history panel. Export SVG from the board toolbar.
-
-### Canvas shortcuts
-
-| Key | Tool |
-| --- | --- |
-| `V` | Select |
-| `B` | Pen |
-| `E` | Eraser |
-| `L` | Line |
-| `A` | Arrow |
-| `O` | Ellipse |
-| `R` | Rectangle |
-| `D` | Diamond |
-| `C` | Connector |
-| `T` | Text |
-| `S` | Sticky note |
-
-### Access roles
-
-| Role | Can view | Can comment | Can edit | Can manage sharing |
-| --- | --- | --- | --- | --- |
-| Viewer | yes | | | |
-| Commenter | yes | yes | | |
-| Editor | yes | yes | yes | |
-| Owner | yes | yes | yes | yes |
-
-Inviting an email that already has an account grants access immediately. Pending invites wait until that person registers.
-
-### Password recovery
-
-There is no mailer in this base. Requesting a reset writes a one-time link to `data/recovery.log`. Open `/recover?token=…` from that file within one hour.
-
-## Architecture
-
-Two paths to the same board:
-
-```
-Browser  --HTTPS JSON-->  Next.js API  -->  SQLite + storage/
-Browser  --WebSocket--->  collab server -->  SyncManager / PresenceManager
+```bash
+npm run dev
 ```
 
-HTTPS handles accounts, boards, sharing, comments, versions, and export. The WebSocket layer authenticates with the same session token, checks board permissions, applies edits, and broadcasts operations plus cursors to everyone in the room.
+Terminal 2:
 
-Package layout follows that split:
-
-```
-src/
-  app/             pages and API routes
-  auth/            User, Session, AuthenticationManager, RecoveryManager
-  board/           Board, canvas, tools, templates
-  collaboration/   SyncManager, PresenceManager, client hook
-  sharing/         PermissionChecker, members, invitations
-  comments/        comment threads
-  history/         VersionManager snapshots
-  export/          SVG export
-  persistence/     SQLite schema and file storage
-server/
-  collaboration.ts WebSocket collaboration process
+```bash
+ngrok http 3001
 ```
 
-Visual tokens live in `DESIGN.md`.
+Copy the `wss://…` URL from ngrok into `.env.local`:
 
-## Data on disk
+```bash
+NEXT_PUBLIC_COLLAB_URL=wss://YOUR-NGROK-HOST
+```
 
-| Path | Contents |
-| --- | --- |
-| `data/locus.db` | Users, sessions, boards, elements, comments, versions |
-| `data/recovery.log` | Local recovery links (dev only) |
-| `storage/exports/` | Generated SVG files |
-| `storage/media/` | Uploaded media |
+Restart `npm run dev` so Next.js picks up the env var. Remote users load the Next app (localhost or your deployed web URL) and connect to your tunneled WSS endpoint.
 
-SQLite files, recovery logs, and generated exports are gitignored. The schema is created automatically on first run.
+### Option B — nginx reverse proxy
 
-## License
+See `nginx.collab.example.conf` for WebSocket upgrade headers. Point `NEXT_PUBLIC_COLLAB_URL` at your public WSS host.
 
-Private project unless a license file is added.
+### Architecture notes
+
+- **HTTPS (Application layer):** board CRUD, sharing invites, comments, versions — persisted in SQLite via `PermissionChecker`.
+- **WSS (Collaboration layer):** cursor presence and diagram ops — routed through `PresenceManager` and `SyncManager`; ops are permission-checked then written to the DB and fan-out to the room.
+- **In-memory fan-out:** all clients on a board share one Node process; presence lives in memory until disconnect.
+- **Uptime:** if your laptop sleeps or the tunnel drops, live sessions end immediately. For always-on collab, deploy `server/collaboration.ts` to Render, Railway, or Fly.io and set `NEXT_PUBLIC_COLLAB_URL` to that host.
+
+## Package map
+
+- `src/auth` — User, Session, AuthenticationManager, RecoveryManager
+- `src/board` — Board, BoardManager, diagram, templates
+- `src/collaboration` — SyncManager, PresenceManager, WSS client hook
+- `src/sharing` — PermissionChecker, BoardMember, Invitation
+- `src/comments` — Comment threads
+- `src/history` — non-destructive VersionManager
+- `src/export` — SVG export into `storage/exports`
+
+Account recovery writes a one-time link to `data/recovery.log` (no mailer in this base).
+
+## Auth (Clerk)
+
+Authentication is handled by [Clerk](https://clerk.com). Sign in at `/sign-in`, sign up at `/sign-up`.
+
+- Protected routes: `/dashboard`, `/board/*`, `/api/boards/*`, `/api/templates`
+- Local SQLite users are synced from Clerk on first API access (`User.syncFromClerk`)
+- WebSocket collaboration verifies Clerk session tokens via `@clerk/backend`
+
+Configure Clerk keys in `.env.local` (see `.env.example`). Legacy `/login`, `/register`, and `/recover` redirect to Clerk routes.
+
+## Dark mode
+
+Use the moon/sun toggle in the header. Preference is stored in `localStorage` under `locus_theme`.

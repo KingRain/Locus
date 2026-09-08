@@ -53,6 +53,7 @@ export function BoardSidePanel({
           className={cn(
             "absolute right-3 top-[68px] bottom-3 z-30 flex w-[min(100%,380px)] flex-col overflow-hidden",
             "rounded-2xl border border-warm-stone/80 bg-paper-white/95 shadow-[0_8px_40px_rgba(21,27,49,0.12)] backdrop-blur-md",
+            "dark:border-border/50 dark:bg-card/95 dark:shadow-[0_8px_40px_rgba(0,0,0,0.5)]",
           )}
         >
           <div className="flex items-start justify-between gap-3 border-b border-warm-stone/70 px-4 py-4">

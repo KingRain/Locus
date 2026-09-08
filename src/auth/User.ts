@@ -1,5 +1,8 @@
-import { getDb, newId, now } from "../persistence/db";
+import { getDb, now } from "../persistence/db";
+import { Invitation } from "../sharing/Invitation";
 import type { UserRecord } from "../lib/types";
+
+const CLERK_PASSWORD = "@clerk";
 
 export class User {
   constructor(public readonly record: UserRecord) {}
@@ -34,38 +37,69 @@ export class User {
     });
   }
 
-  static create(input: { email: string; name: string; passwordHash: string }): User {
-    const id = newId();
+  static syncFromClerk(input: { id: string; email: string; name: string }): User {
+    const email = input.email.trim().toLowerCase();
+    const name = input.name.trim() || email.split("@")[0] || "User";
+    if (!email) {
+      throw new Error("A verified email is required to use Locus.");
+    }
+
+    const byClerkId = User.findById(input.id);
+    if (byClerkId) {
+      getDb()
+        .prepare("UPDATE users SET email = ?, name = ? WHERE id = ?")
+        .run(email, name, input.id);
+      return new User({ ...byClerkId.record, email, name });
+    }
+
+    const byEmail = User.findByEmail(email);
+    if (byEmail) {
+      if (byEmail.record.id !== input.id) {
+        User.linkClerkId(byEmail.record, input.id, email, name);
+      }
+      return User.findById(input.id)!;
+    }
+
     const createdAt = now();
     getDb()
       .prepare(
         "INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
       )
-      .run(id, input.email.toLowerCase(), input.name.trim(), input.passwordHash, createdAt);
-    return new User({
-      id,
-      email: input.email.toLowerCase(),
-      name: input.name.trim(),
-      createdAt,
-    });
+      .run(input.id, email, name, CLERK_PASSWORD, createdAt);
+    Invitation.acceptPendingForUser(input.id, email);
+    return new User({ id: input.id, email, name, createdAt });
   }
 
-  passwordHash(): string {
-    const row = getDb()
-      .prepare("SELECT password_hash FROM users WHERE id = ?")
-      .get(this.record.id) as { password_hash: string } | undefined;
-    if (!row) throw new Error("User not found");
-    return row.password_hash;
-  }
-
-  updateProfile(name: string): User {
-    getDb().prepare("UPDATE users SET name = ? WHERE id = ?").run(name.trim(), this.record.id);
-    return new User({ ...this.record, name: name.trim() });
-  }
-
-  updatePassword(passwordHash: string): void {
-    getDb()
-      .prepare("UPDATE users SET password_hash = ? WHERE id = ?")
-      .run(passwordHash, this.record.id);
+  /** Re-key a pre-Clerk local account to the Clerk user id while keeping boards and memberships. */
+  private static linkClerkId(
+    oldUser: UserRecord,
+    clerkId: string,
+    email: string,
+    name: string,
+  ): void {
+    const db = getDb();
+    const oldId = oldUser.id;
+    db.exec("PRAGMA foreign_keys = OFF;");
+    try {
+      db.exec("BEGIN;");
+      db.prepare("UPDATE board_members SET user_id = ? WHERE user_id = ?").run(clerkId, oldId);
+      db.prepare("UPDATE boards SET owner_id = ? WHERE owner_id = ?").run(clerkId, oldId);
+      db.prepare("UPDATE comments SET user_id = ? WHERE user_id = ?").run(clerkId, oldId);
+      db.prepare("UPDATE versions SET created_by = ? WHERE created_by = ?").run(clerkId, oldId);
+      db.prepare("UPDATE access_requests SET user_id = ? WHERE user_id = ?").run(clerkId, oldId);
+      db.prepare("DELETE FROM sessions WHERE user_id = ?").run(oldId);
+      db.prepare("DELETE FROM recovery_tokens WHERE user_id = ?").run(oldId);
+      db.prepare("DELETE FROM users WHERE id = ?").run(oldId);
+      db.prepare(
+        "INSERT INTO users (id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+      ).run(clerkId, email, name, CLERK_PASSWORD, oldUser.createdAt);
+      db.exec("COMMIT;");
+      Invitation.acceptPendingForUser(clerkId, email);
+    } catch (error) {
+      db.exec("ROLLBACK;");
+      throw error;
+    } finally {
+      db.exec("PRAGMA foreign_keys = ON;");
+    }
   }
 }

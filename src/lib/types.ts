@@ -11,7 +11,6 @@ export type ElementType =
   | "line"
   | "arrow";
 export type TemplateKind = "uml" | "flowchart" | "er" | "architecture";
-export type ConnectionState = "connected" | "reconnecting" | "unavailable";
 export type Tool =
   | "select"
   | "pen"
@@ -111,28 +110,4 @@ export type InvitationRecord = {
   createdAt: number;
 };
 
-export type PresenceUser = {
-  userId: string;
-  name: string;
-  color: string;
-  cursor: { x: number; y: number } | null;
-};
 
-export type BoardOperation =
-  | { kind: "upsert"; element: DiagramElementRecord }
-  | { kind: "delete"; elementId: string }
-  | { kind: "replaceAll"; elements: DiagramElementRecord[] };
-
-export type CollabClientMessage =
-  | { type: "join"; boardId: string; token: string }
-  | { type: "op"; operation: BoardOperation }
-  | { type: "cursor"; x: number; y: number }
-  | { type: "leave" };
-
-export type CollabServerMessage =
-  | { type: "joined"; selfId: string; presence: PresenceUser[] }
-  | { type: "op"; from: string; operation: BoardOperation }
-  | { type: "presence"; presence: PresenceUser[] }
-  | { type: "cursor"; userId: string; name: string; color: string; x: number; y: number }
-  | { type: "error"; message: string }
-  | { type: "state"; state: ConnectionState };

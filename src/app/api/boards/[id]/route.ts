@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { boardManager } from "@/board/Board";
-import { DiagramElement } from "@/board/diagram/DiagramElement";
 import { permissionChecker } from "@/sharing/PermissionChecker";
 import { jsonError, requireUser } from "@/lib/http";
 
@@ -14,7 +13,6 @@ export async function GET(_request: Request, ctx: Ctx) {
     return NextResponse.json({
       board: board.record,
       role: permissionChecker.roleFor(id, user.record.id),
-      elements: DiagramElement.list(id),
     });
   } catch (error) {
     return jsonError(error);

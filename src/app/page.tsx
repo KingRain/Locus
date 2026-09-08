@@ -1,8 +1,11 @@
 import { Banner, Logo } from "@/components/brand";
-import { Button } from "@/components/locus-ui";
+import { AuthControls } from "@/components/auth-controls";
 import { LayoutGrid, PenLine, Users, Wifi } from "@/components/icons";
 import { FadeIn, StaggerGrid, StaggerItem } from "@/components/motion/fade-in";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/locus-ui";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Show, SignUpButton } from "@clerk/nextjs";
 
 export default function HomePage() {
   return (
@@ -10,7 +13,10 @@ export default function HomePage() {
       <Banner />
       <header className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-5">
         <Logo />
-        <Button href="/login" variant="ghost" className="py-2">Log in</Button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <AuthControls />
+        </div>
       </header>
       <main className="mx-auto max-w-[1200px] px-6 pb-24 pt-12">
         <FadeIn className="mx-auto max-w-[820px] text-center">
@@ -24,8 +30,14 @@ export default function HomePage() {
             Locus is a browser whiteboard for students and small teams — shapes, comments, live cursors, and version history without the enterprise fog.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Button href="/register">Get started</Button>
-            <Button href="/login" variant="ghost">I already have a board</Button>
+            <Show when="signed-out">
+              <SignUpButton mode="modal">
+                <Button>Get started</Button>
+              </SignUpButton>
+            </Show>
+            <Show when="signed-in">
+              <Button href="/dashboard">Open dashboard</Button>
+            </Show>
           </div>
         </FadeIn>
 

@@ -1,7 +1,12 @@
 import { getDb, newId, now } from "../persistence/db";
+import { Liveblocks } from "@liveblocks/node";
 import { User } from "../auth/User";
 import { permissionChecker } from "./PermissionChecker";
 import type { BoardMemberRecord, BoardRole, InvitationRecord } from "../lib/types";
+
+const liveblocks = new Liveblocks({
+  secret: process.env.LIVEBLOCKS_SECRET_KEY ?? "",
+});
 
 export class BoardMember {
   static list(boardId: string): BoardMemberRecord[] {
@@ -78,6 +83,11 @@ export class Invitation {
     }
     if (existing) {
       BoardMember.assignRole(boardId, existing.record.id, role);
+      liveblocks.updateRoom(boardId, {
+        usersAccesses: {
+          [existing.record.id]: role === "viewer" ? ["room:read", "room:presence:write"] : ["room:write"],
+        },
+      }).catch(() => {});
     }
     const record: InvitationRecord = {
       id: newId(),
@@ -99,5 +109,25 @@ export class Invitation {
     getDb()
       .prepare("UPDATE invitations SET status = 'revoked' WHERE id = ? AND board_id = ?")
       .run(id, boardId);
+  }
+
+  static acceptPendingForUser(userId: string, email: string): void {
+    const normalized = email.trim().toLowerCase();
+    const rows = getDb()
+      .prepare(
+        "SELECT id, board_id, role FROM invitations WHERE email = ? AND status = 'pending'",
+      )
+      .all(normalized) as Array<{ id: string; board_id: string; role: BoardRole }>;
+    for (const row of rows) {
+      BoardMember.assignRole(row.board_id, userId, row.role);
+      liveblocks.updateRoom(row.board_id, {
+        usersAccesses: {
+          [userId]: row.role === "viewer" ? ["room:read", "room:presence:write"] : ["room:write"],
+        },
+      }).catch(() => {});
+      getDb()
+        .prepare("UPDATE invitations SET status = 'accepted' WHERE id = ?")
+        .run(row.id);
+    }
   }
 }

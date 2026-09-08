@@ -32,6 +32,9 @@ function elementSvg(element: DiagramElementRecord): string {
   if (element.type === "connector") {
     return "";
   }
+  if (element.type === "text") {
+    return `<text x="${element.x + 12}" y="${element.y + 24}" font-family="Inter, sans-serif" font-size="14" fill="#151b31">${label}</text>`;
+  }
   if (element.type === "path") {
     return `<path d="${escapeXml(element.text)}" fill="none" stroke="${element.stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />`;
   }

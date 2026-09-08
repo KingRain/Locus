@@ -66,5 +66,5 @@ export function Field({
 }
 
 export function TextInput({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <Input className={cn("h-10 rounded-lg bg-paper-white", className)} {...props} />;
+  return <Input className={cn("h-10 rounded-lg bg-paper-white dark:bg-input/30", className)} {...props} />;
 }

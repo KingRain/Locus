@@ -1,9 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useUser } from "@clerk/nextjs";
+import { LiveObject } from "@liveblocks/client";
+import {
+  useStorage,
+  useMutation,
+  useOthers,
+  useUpdateMyPresence,
+  useUndo,
+  useRedo,
+} from "@liveblocks/react/suspense";
+import type { ShapeData } from "../../../liveblocks.config";
 import { api } from "@/lib/api";
-import { persistCollabToken, readCollabToken } from "@/components/auth-forms";
 import { Logo } from "@/components/brand";
 import {
   Download,
@@ -11,8 +22,6 @@ import {
   LayoutDashboard,
   MessageSquare,
   Share2,
-  Wifi,
-  WifiOff,
 } from "@/components/icons";
 import { Button, TextInput } from "@/components/locus-ui";
 import { RoleBadge, TagBadge } from "@/components/tag-badge";
@@ -21,9 +30,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button as ShadButton } from "@/components/ui/button";
-import { useCollaboration } from "@/collaboration/useCollaboration";
 import { ToolDock } from "@/board/diagram/ToolDock";
 import { EditableBoardTitle } from "@/board/diagram/EditableBoardTitle";
+import { ThemeToggle } from "@/components/theme-toggle";
+import { useTheme } from "@/components/theme-provider";
+import { recordRecentBoard } from "@/lib/recent-boards";
 import {
   center,
   clamp,
@@ -35,20 +46,16 @@ import {
 } from "@/board/diagram/canvas-utils";
 import { toolFromShortcut } from "@/board/diagram/tool-shortcuts";
 import type {
-  BoardOperation,
   BoardRecord,
   BoardRole,
   CommentRecord,
-  ConnectionState,
-  DiagramElementRecord,
   ElementType,
   InvitationRecord,
   Tool,
-  UserRecord,
   VersionRecord,
 } from "@/lib/types";
 
-function defaultFill(type: ElementType): string {
+function defaultFill(type: string): string {
   if (type === "sticky") return "#fedf89";
   return "#ffffff";
 }
@@ -70,13 +77,19 @@ function Shape({
   element,
   selected,
   others,
+  darkMode,
 }: {
-  element: DiagramElementRecord;
+  element: ShapeData;
   selected: boolean;
-  others: DiagramElementRecord[];
+  others: ShapeData[];
+  darkMode: boolean;
 }) {
-  const textColor = element.fill === "#151b31" ? "#ffffff" : "#151b31";
-  const stroke = selected ? "#ff5858" : element.stroke;
+  const textColor = element.fill === "#151b31" ? "#ffffff" : darkMode ? "#e8eaf2" : "#151b31";
+  let stroke = selected ? "#ff5858" : element.stroke;
+  if (darkMode && stroke === "#151b31") {
+    stroke = "#e8eaf2";
+  }
+  const strokeDasharray = element.strokeStyle === "dashed" ? "8 4" : element.strokeStyle === "dotted" ? "2 4" : undefined;
   const common = { fill: element.fill, stroke, strokeWidth: selected ? 3 : 2 };
   const lines = element.text.split("\n");
 
@@ -89,11 +102,26 @@ function Shape({
         strokeWidth={2.5}
         strokeLinecap="round"
         strokeLinejoin="round"
+        strokeDasharray={strokeDasharray}
       />
     );
   }
 
   if (element.type === "line" || element.type === "arrow") {
+    const hasCurve = element.cx !== 0 || element.cy !== 0;
+    if (hasCurve) {
+      const d = `M ${element.x} ${element.y} Q ${element.cx} ${element.cy} ${element.width} ${element.height}`;
+      return (
+        <path
+          d={d}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={2}
+          strokeDasharray={strokeDasharray}
+          markerEnd={element.type === "arrow" ? "url(#arrow)" : undefined}
+        />
+      );
+    }
     return (
       <line
         x1={element.x}
@@ -102,6 +130,7 @@ function Shape({
         y2={element.height}
         stroke={stroke}
         strokeWidth={2}
+        strokeDasharray={strokeDasharray}
         markerEnd={element.type === "arrow" ? "url(#arrow)" : undefined}
       />
     );
@@ -132,7 +161,7 @@ function Shape({
             y={(start.y + end.y) / 2 - 8}
             textAnchor="middle"
             fontSize="12"
-            fill="#151b31"
+            fill={darkMode ? "#e8eaf2" : "#151b31"}
           >
             {element.text}
           </text>
@@ -186,6 +215,18 @@ function Shape({
     );
   }
 
+  if (element.type === "text") {
+    return (
+      <text x={element.x + 14} y={element.y + 26} fontSize="14" fill={textColor}>
+        {lines.map((line, index) => (
+          <tspan key={line + index} x={element.x + 14} dy={index === 0 ? 0 : 18}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    );
+  }
+
   return (
     <g>
       <rect
@@ -207,29 +248,11 @@ function Shape({
   );
 }
 
-function ConnectionPill({ state }: { state: ConnectionState }) {
-  const label = { connected: "Live", reconnecting: "Reconnecting", unavailable: "Offline" }[state];
-  const tone = {
-    connected: "bg-mint-pulse text-inkwell-navy",
-    reconnecting: "bg-butter-yellow text-inkwell-navy",
-    unavailable: "bg-coral-emphasis text-paper-white",
-  }[state];
-  const Icon = state === "unavailable" ? WifiOff : Wifi;
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1 text-[12px] font-medium ${tone}`}>
-      <Icon className="h-3.5 w-3.5" strokeWidth={2} />
-      {label}
-    </span>
-  );
-}
-
 export function BoardWorkspace({ boardId }: { boardId: string }) {
   const router = useRouter();
-  const [user, setUser] = useState<UserRecord | null>(null);
-  const [token, setToken] = useState<string | null>(null);
+  const { user: clerkUser, isLoaded } = useUser();
   const [board, setBoard] = useState<BoardRecord | null>(null);
   const [role, setRole] = useState<BoardRole>("viewer");
-  const [elements, setElements] = useState<DiagramElementRecord[]>([]);
   const [tool, setTool] = useState<Tool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -242,63 +265,99 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
   const [preview, setPreview] = useState<{ kind: "line" | "rect"; x1: number; y1: number; x2: number; y2: number } | { kind: "path"; d: string } | { kind: "marquee"; x1: number; y1: number; x2: number; y2: number } | null>(null);
 
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
+  const resize = useRef<{ id: string; handle: string; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number } | null>(null);
+  const arrowJoint = useRef<{ id: string; joint: "start" | "middle" | "end"; startX: number; startY: number } | null>(null);
   const draft = useRef<{ type: ElementType; x: number; y: number } | null>(null);
   const penStroke = useRef<{ points: { x: number; y: number }[] } | null>(null);
   const connectorFrom = useRef<string | null>(null);
   const panRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
   const marqueeRef = useRef<{ x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; x: number; y: number; width: number; height: number; text: string } | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const viewportRef = useRef(viewport);
-  viewportRef.current = viewport;
+
+  useEffect(() => {
+    viewportRef.current = viewport;
+  });
 
   const canEdit = role === "owner" || role === "editor";
 
-  const applyOp = useCallback((operation: BoardOperation) => {
-    setElements((current) => {
-      if (operation.kind === "upsert") {
-        const rest = current.filter((item) => item.id !== operation.element.id);
-        return [...rest, operation.element];
-      }
-      if (operation.kind === "delete") return current.filter((item) => item.id !== operation.elementId);
-      return operation.elements;
-    });
+  const elements = useStorage((root) => root.elements);
+  const others = useOthers();
+  const updateMyPresence = useUpdateMyPresence();
+  const undo = useUndo();
+  const redo = useRedo();
+  const { theme } = useTheme();
+  const defaultStroke = theme === "dark" ? "#e8eaf2" : "#151b31";
+  const [penColor, setPenColor] = useState(defaultStroke);
+  const [penStyle, setPenStyle] = useState<"solid" | "dashed" | "dotted">("solid");
+
+  const elementsArray = useMemo(() => Array.from(elements.values()), [elements]);
+
+  const addElement = useMutation(({ storage }, element: ShapeData) => {
+    storage.get("elements").set(element.id, new LiveObject(element));
   }, []);
 
-  const { state, presence, cursors, sendOp, sendCursor } = useCollaboration(boardId, token, applyOp);
+  const removeElement = useMutation(({ storage }, id: string) => {
+    storage.get("elements").delete(id);
+  }, []);
 
   useEffect(() => {
+    if (!isLoaded) return;
+    if (!clerkUser) {
+      router.replace("/sign-in");
+      return;
+    }
     async function boot() {
-      const me = await api<{ user: UserRecord | null; collabToken: string | null }>("/api/auth/me");
-      if (!me.user) {
-        router.replace("/login");
-        return;
-      }
-      persistCollabToken(me.collabToken);
-      setUser(me.user);
-      setToken(me.collabToken ?? readCollabToken());
-      const data = await api<{ board: BoardRecord; role: BoardRole; elements: DiagramElementRecord[] }>(
+      const data = await api<{ board: BoardRecord; role: BoardRole }>(
         `/api/boards/${boardId}`,
       );
       setBoard(data.board);
       setRole(data.role);
-      setElements(data.elements);
+      recordRecentBoard(data.board);
     }
     void boot();
-  }, [boardId, router]);
+  }, [boardId, clerkUser, isLoaded, router]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        if (event.key === "z" && !event.shiftKey) {
+          event.preventDefault();
+          undo();
+          return;
+        }
+        if (event.key === "z" && event.shiftKey) {
+          event.preventDefault();
+          redo();
+          return;
+        }
+        if (event.key === "y") {
+          event.preventDefault();
+          redo();
+          return;
+        }
+        return;
+      }
+
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const next = toolFromShortcut(event.key);
       if (next && canEdit) {
+        if (editing) {
+          const el = elementsArray.find((item) => item.id === editing.id);
+          if (el) upsertElement({ ...el, text: editing.text });
+          setEditing(null);
+        }
         setTool(next);
         event.preventDefault();
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canEdit]);
+  }, [canEdit, undo, redo]);
 
   useEffect(() => {
     const svg = svgRef.current;
@@ -326,7 +385,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     return () => svg.removeEventListener("wheel", onWheel);
   }, []);
 
-  const selected = elements.find((item) => item.id === selectedId) ?? null;
+  const selected = elementsArray.find((item) => item.id === selectedId) ?? null;
 
   function point(event: React.PointerEvent<SVGSVGElement>) {
     const svg = svgRef.current;
@@ -347,20 +406,23 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     return { x: event.clientX - rect.left, y: event.clientY - rect.top };
   }
 
-  function upsert(element: DiagramElementRecord) {
-    applyOp({ kind: "upsert", element });
-    if (canEdit) sendOp({ kind: "upsert", element });
+  function upsertElement(element: ShapeData) {
+    if (canEdit) addElement(element);
   }
 
-  function remove(elementId: string) {
-    applyOp({ kind: "delete", elementId });
-    if (canEdit) sendOp({ kind: "delete", elementId });
+  function removeEl(elementId: string) {
+    if (canEdit) removeElement(elementId);
   }
 
   function onPointerDown(event: React.PointerEvent<SVGSVGElement>) {
     event.preventDefault();
 
-    // Middle-click pan (button 1)
+    if (editing) {
+      const el = elementsArray.find((item) => item.id === editing.id);
+      if (el) upsertElement({ ...el, text: editing.text });
+      setEditing(null);
+    }
+
     if (event.button === 1) {
       const sp = screenPoint(event);
       panRef.current = { startX: sp.x, startY: sp.y, origX: viewport.x, origY: viewport.y };
@@ -370,13 +432,13 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
 
     event.currentTarget.setPointerCapture(event.pointerId);
     const p = point(event);
-    sendCursor(p.x, p.y);
+    updateMyPresence({ cursor: { x: p.x, y: p.y } });
     if (!canEdit) return;
 
     if (tool === "eraser") {
-      const hit = hitTestEraser(elements, p);
+      const hit = hitTestEraser(elementsArray, p);
       if (hit) {
-        remove(hit.id);
+        removeEl(hit.id);
         if (selectedId === hit.id) setSelectedId(null);
         setSelectedIds((current) => {
           const next = new Set(current);
@@ -388,7 +450,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
 
     if (tool === "select") {
-      const hit = hitTest(elements, p);
+      const hit = hitTest(elementsArray, p);
       if (hit) {
         setSelectedId(hit.id);
         setSelectedIds(new Set([hit.id]));
@@ -409,13 +471,13 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
 
     if (tool === "connector") {
-      const hit = hitTest(elements, p);
+      const hit = hitTest(elementsArray, p);
       if (!hit) return;
       if (!connectorFrom.current) {
         connectorFrom.current = hit.id;
         return;
       }
-      upsert({
+      upsertElement({
         id: crypto.randomUUID(),
         boardId,
         type: "connector",
@@ -425,11 +487,14 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         height: 0,
         rotation: 0,
         fill: "#ffffff",
-        stroke: "#151b31",
+        stroke: defaultStroke,
+        strokeStyle: "solid",
         text: "",
         fromId: connectorFrom.current,
         toId: hit.id,
-        zIndex: elements.length + 1,
+        cx: 0,
+        cy: 0,
+        zIndex: elementsArray.length + 1,
         updatedAt: Date.now(),
       });
       connectorFrom.current = null;
@@ -461,7 +526,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
 
     const p = point(event);
-    sendCursor(p.x, p.y);
+    updateMyPresence({ cursor: { x: p.x, y: p.y } });
 
     if (marqueeRef.current) {
       setPreview({
@@ -488,9 +553,9 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
 
     if (tool === "eraser" && canEdit && event.buttons > 0) {
-      const hit = hitTestEraser(elements, p);
+      const hit = hitTestEraser(elementsArray, p);
       if (hit) {
-        remove(hit.id);
+        removeEl(hit.id);
         if (selectedId === hit.id) setSelectedId(null);
         setSelectedIds((current) => {
           const next = new Set(current);
@@ -502,9 +567,45 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
 
     if (drag.current) {
-      const current = elements.find((item) => item.id === drag.current?.id);
+      const current = elementsArray.find((item) => item.id === drag.current?.id);
       if (!current) return;
-      upsert({ ...current, x: p.x - drag.current.dx, y: p.y - drag.current.dy });
+      upsertElement({ ...current, x: p.x - drag.current.dx, y: p.y - drag.current.dy });
+      return;
+    }
+
+    if (resize.current) {
+      const el = elementsArray.find((item) => item.id === resize.current?.id);
+      if (!el) return;
+      const dx = (event.clientX - resize.current.startX) / viewport.scale;
+      const dy = (event.clientY - resize.current.startY) / viewport.scale;
+      const h = resize.current.handle;
+      let newX = resize.current.origX;
+      let newY = resize.current.origY;
+      let newW = resize.current.origW;
+      let newH = resize.current.origH;
+      if (h.includes("e")) newW = Math.max(20, resize.current.origW + dx);
+      if (h.includes("w")) { newW = Math.max(20, resize.current.origW - dx); newX = resize.current.origX + dx; }
+      if (h.includes("s")) newH = Math.max(20, resize.current.origH + dy);
+      if (h.includes("n")) { newH = Math.max(20, resize.current.origH - dy); newY = resize.current.origY + dy; }
+      upsertElement({ ...el, x: newX, y: newY, width: newW, height: newH });
+      return;
+    }
+
+    if (arrowJoint.current) {
+      const el = elementsArray.find((item) => item.id === arrowJoint.current?.id);
+      if (!el) return;
+      const dx = (event.clientX - arrowJoint.current.startX) / viewport.scale;
+      const dy = (event.clientY - arrowJoint.current.startY) / viewport.scale;
+      if (arrowJoint.current.joint === "start") {
+        upsertElement({ ...el, x: el.x + dx, y: el.y + dy });
+      } else if (arrowJoint.current.joint === "end") {
+        upsertElement({ ...el, width: el.width + dx, height: el.height + dy });
+      } else {
+        const newCx = el.cx + dx;
+        const newCy = el.cy + dy;
+        upsertElement({ ...el, cx: newCx, cy: newCy });
+      }
+      arrowJoint.current = { ...arrowJoint.current, startX: event.clientX, startY: event.clientY };
       return;
     }
 
@@ -532,7 +633,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
       const d = penStroke.current.points
         .map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y}`)
         .join(" ");
-      upsert({
+      upsertElement({
         id: crypto.randomUUID(),
         boardId,
         type: "path",
@@ -542,11 +643,14 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         height: 0,
         rotation: 0,
         fill: "none",
-        stroke: "#151b31",
+        stroke: penColor,
+        strokeStyle: penStyle,
         text: d,
         fromId: null,
         toId: null,
-        zIndex: elements.length + 1,
+        cx: 0,
+        cy: 0,
+        zIndex: elementsArray.length + 1,
         updatedAt: Date.now(),
       });
     }
@@ -560,7 +664,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         height: Math.abs(preview.y2 - preview.y1),
       };
       if (rect.width > 4 || rect.height > 4) {
-        const ids = elements.filter((el) => elementIntersectsRect(el, rect)).map((el) => el.id);
+        const ids = elementsArray.filter((el) => elementIntersectsRect(el, rect)).map((el) => el.id);
         setSelectedIds(new Set(ids));
         setSelectedId(ids[0] ?? null);
       }
@@ -571,7 +675,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
       const { type, x, y } = draft.current;
       if (type === "line" || type === "arrow") {
         if (Math.hypot(p.x - x, p.y - y) > 4) {
-          upsert({
+          upsertElement({
             id: crypto.randomUUID(),
             boardId,
             type,
@@ -581,11 +685,14 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
             height: p.y,
             rotation: 0,
             fill: "none",
-            stroke: "#151b31",
+            stroke: defaultStroke,
+            strokeStyle: "solid",
             text: "",
             fromId: null,
             toId: null,
-            zIndex: elements.length + 1,
+            cx: (x + p.x) / 2,
+            cy: (y + p.y) / 2,
+            zIndex: elementsArray.length + 1,
             updatedAt: Date.now(),
           });
         }
@@ -593,7 +700,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
       } else {
         const width = Math.max(type === "text" ? 200 : 80, p.x - x);
         const height = Math.max(type === "text" ? 48 : 48, p.y - y);
-        const element: DiagramElementRecord = {
+        const element: ShapeData = {
           id: crypto.randomUUID(),
           boardId,
           type,
@@ -603,14 +710,17 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
           height,
           rotation: 0,
           fill: defaultFill(type),
-          stroke: "#151b31",
+          stroke: defaultStroke,
+          strokeStyle: "solid",
           text: type === "text" ? "Label" : type === "sticky" ? "Note" : "",
           fromId: null,
           toId: null,
-          zIndex: elements.length + 1,
+          cx: 0,
+          cy: 0,
+          zIndex: elementsArray.length + 1,
           updatedAt: Date.now(),
         };
-        upsert(element);
+        upsertElement(element);
         setSelectedId(element.id);
         setTool("select");
       }
@@ -618,9 +728,33 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
 
     drag.current = null;
+    resize.current = null;
+    arrowJoint.current = null;
     panRef.current = null;
     setPreview(null);
   }
+
+  function onDoubleClick(event: React.MouseEvent<SVGSVGElement>) {
+    if (tool !== "select" || !canEdit) return;
+    const p = point(event as unknown as React.PointerEvent<SVGSVGElement>);
+    const hit = hitTest(elementsArray, p);
+    if (!hit) return;
+    if (hit.type === "path" || hit.type === "line" || hit.type === "arrow" || hit.type === "connector") return;
+    setSelectedId(hit.id);
+    setSelectedIds(new Set([hit.id]));
+    setEditing({ id: hit.id, x: hit.x, y: hit.y, width: hit.width, height: hit.height, text: hit.text });
+  }
+
+  useEffect(() => {
+    if (editing) {
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.focus();
+        ta.selectionStart = ta.value.length;
+        ta.selectionEnd = ta.value.length;
+      }
+    }
+  }, [editing]);
 
   async function openPanel(next: typeof panel) {
     setPanel(next);
@@ -652,15 +786,20 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     URL.revokeObjectURL(url);
   }
 
-  const others = useMemo(() => presence.filter((item) => item.userId !== user?.id), [presence, user]);
+  async function saveSnapshot(label: string) {
+    await api(`/api/boards/${boardId}/versions`, {
+      method: "POST",
+      body: JSON.stringify({ label }),
+    });
+  }
 
-  if (!board || !user) {
+  if (!isLoaded || !clerkUser || !board) {
     return <div className="grid min-h-screen place-items-center text-slate">Opening canvas…</div>;
   }
 
   return (
     <div className="flex h-screen flex-col bg-ash-canvas select-none">
-      <header className="flex items-center justify-between border-b border-warm-stone bg-paper-white px-4 py-2.5">
+      <header className="flex items-center justify-between border-b border-warm-stone bg-paper-white px-4 py-2.5 dark:border-border dark:bg-card/80">
         <div className="flex items-center gap-3">
           <Logo compact />
           <EditableBoardTitle
@@ -676,16 +815,27 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
           />
         </div>
         <div className="flex items-center gap-1.5">
-          <ConnectionPill state={state} />
+          <ThemeToggle />
           <div className="mr-1 flex -space-x-2">
-            {others.map((person) => (
+            {others.map(({ connectionId, info }) => (
               <span
-                key={person.userId}
-                title={person.name}
-                className="grid h-8 w-8 place-items-center rounded-full text-[11px] font-semibold ring-2 ring-paper-white"
-                style={{ background: person.color }}
+                key={connectionId}
+                title={info.name}
+                className="relative grid h-8 w-8 place-items-center rounded-full text-[11px] font-semibold ring-2 ring-paper-white"
+                style={{ background: info.color }}
               >
-                {person.name.slice(0, 2).toUpperCase()}
+                {info.avatar ? (
+                  <Image
+                    src={info.avatar}
+                    alt={info.name}
+                    width={32}
+                    height={32}
+                    className="h-full w-full rounded-full object-cover"
+                    unoptimized
+                  />
+                ) : (
+                  info.name.slice(0, 2).toUpperCase()
+                )}
               </span>
             ))}
           </div>
@@ -713,36 +863,38 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <svg
           ref={svgRef}
-          className="whiteboard-surface h-full w-full bg-[#fafafa]"
+          className="whiteboard-surface h-full w-full bg-[#fafafa] dark:bg-[#0a0a0a]"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
+          onDoubleClick={onDoubleClick}
           onContextMenu={(event) => event.preventDefault()}
         >
           <defs>
             <pattern id="dot-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-              <circle cx="1" cy="1" r="1" fill="#d1d5db" />
+              <circle cx="1" cy="1" r="1" fill={theme === "dark" ? "#333333" : "#d1d5db"} />
             </pattern>
             <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="userSpaceOnUse">
-              <path d="M0,0 L0,10 L10,5 z" fill="#151b31" />
+              <path d="M0,0 L0,10 L10,5 z" fill={theme === "dark" ? "#e8eaf2" : "#151b31"} />
             </marker>
           </defs>
           <rect width="100%" height="100%" fill="url(#dot-grid)" />
           <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.scale})`}>
-            {elements.map((element) => (
+            {elementsArray.map((element) => (
               <Shape
                 key={element.id}
                 element={element}
                 selected={selectedIds.has(element.id)}
-                others={elements}
+                others={elementsArray}
+                darkMode={theme === "dark"}
               />
             ))}
             {preview?.kind === "path" ? (
               <path
                 d={preview.d}
                 fill="none"
-                stroke="#151b31"
+                stroke={theme === "dark" ? "#e8eaf2" : "#151b31"}
                 strokeWidth={2.5}
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -755,7 +907,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
                 y1={preview.y1}
                 x2={preview.x2}
                 y2={preview.y2}
-                stroke="#151b31"
+                stroke={theme === "dark" ? "#e8eaf2" : "#151b31"}
                 strokeWidth={2}
                 strokeDasharray="6 4"
                 opacity={0.7}
@@ -769,7 +921,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
                 width={Math.abs(preview.x2 - preview.x1)}
                 height={Math.abs(preview.y2 - preview.y1)}
                 fill="rgba(134,224,193,0.15)"
-                stroke="#151b31"
+                stroke={theme === "dark" ? "#e8eaf2" : "#151b31"}
                 strokeWidth={1.5}
                 strokeDasharray="6 4"
               />
@@ -786,30 +938,173 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
                 strokeDasharray="4 3"
               />
             ) : null}
-            {Object.entries(cursors).map(([id, cursor]) =>
-              id === user.id ? null : (
-                <g key={id} transform={`translate(${cursor.x} ${cursor.y})`} pointerEvents="none">
-                  <path d="M0 0 L0 16 L4 12 L8 20 L11 18 L7 11 L14 11 Z" fill={cursor.color} />
-                  <text x="16" y="12" fontSize="11" fill="#151b31">
-                    {cursor.name}
+            {others.map(({ connectionId, presence, info }) =>
+              presence.cursor ? (
+                <g key={connectionId} transform={`translate(${presence.cursor.x} ${presence.cursor.y})`} pointerEvents="none">
+                  <path d="M0 0 L0 16 L4 12 L8 20 L11 18 L7 11 L14 11 Z" fill={info.color} />
+                  <text x="16" y="12" fontSize="11" fill={theme === "dark" ? "#e8eaf2" : "#151b31"}>
+                    {info.name}
                   </text>
                 </g>
-              ),
+              ) : null,
             )}
+            {selected && canEdit && tool === "select" && (() => {
+              const sel = elementsArray.find((el) => el.id === selectedId);
+              if (!sel) return null;
+              if (sel.type === "path") return null;
+              if (sel.type === "line" || sel.type === "arrow") {
+                const x1 = sel.x, y1 = sel.y, x2 = sel.width, y2 = sel.height;
+                const hasCurve = sel.cx !== 0 || sel.cy !== 0;
+                const cpx = hasCurve ? sel.cx : (x1 + x2) / 2;
+                const cpy = hasCurve ? sel.cy : (y1 + y2) / 2;
+                return (
+                  <g>
+                    {hasCurve ? (
+                      <path d={`M ${x1} ${y1} Q ${cpx} ${cpy} ${x2} ${y2}`} fill="none" stroke="#ff5858" strokeWidth={2} strokeDasharray="6 4" />
+                    ) : (
+                      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ff5858" strokeWidth={2} strokeDasharray="6 4" />
+                    )}
+                    <circle cx={x1} cy={y1} r={5} fill="#ff5858" stroke="#fff" strokeWidth={1.5} style={{ cursor: "move" }} onPointerDown={(e) => { e.stopPropagation(); arrowJoint.current = { id: sel.id, joint: "start", startX: e.clientX, startY: e.clientY }; }} />
+                    <circle cx={cpx} cy={cpy} r={5} fill="#ff5858" stroke="#fff" strokeWidth={1.5} style={{ cursor: "move" }} onPointerDown={(e) => { e.stopPropagation(); arrowJoint.current = { id: sel.id, joint: "middle", startX: e.clientX, startY: e.clientY }; }} />
+                    <circle cx={x2} cy={y2} r={5} fill="#ff5858" stroke="#fff" strokeWidth={1.5} style={{ cursor: "move" }} onPointerDown={(e) => { e.stopPropagation(); arrowJoint.current = { id: sel.id, joint: "end", startX: e.clientX, startY: e.clientY }; }} />
+                    {hasCurve && <line x1={x1} y1={y1} x2={cpx} y2={cpy} stroke="#ff5858" strokeWidth={1} strokeDasharray="4 4" opacity={0.5} />}
+                    {hasCurve && <line x1={cpx} y1={cpy} x2={x2} y2={y2} stroke="#ff5858" strokeWidth={1} strokeDasharray="4 4" opacity={0.5} />}
+                  </g>
+                );
+              }
+              const handles = [
+                { id: "nw", x: sel.x, y: sel.y, cursor: "nw-resize" },
+                { id: "n", x: sel.x + sel.width / 2, y: sel.y, cursor: "n-resize" },
+                { id: "ne", x: sel.x + sel.width, y: sel.y, cursor: "ne-resize" },
+                { id: "e", x: sel.x + sel.width, y: sel.y + sel.height / 2, cursor: "e-resize" },
+                { id: "se", x: sel.x + sel.width, y: sel.y + sel.height, cursor: "se-resize" },
+                { id: "s", x: sel.x + sel.width / 2, y: sel.y + sel.height, cursor: "s-resize" },
+                { id: "sw", x: sel.x, y: sel.y + sel.height, cursor: "sw-resize" },
+                { id: "w", x: sel.x, y: sel.y + sel.height / 2, cursor: "w-resize" },
+              ];
+              return (
+                <g>
+                  <rect x={sel.x - 1} y={sel.y - 1} width={sel.width + 2} height={sel.height + 2} fill="none" stroke="#ff5858" strokeWidth={1.5} strokeDasharray="6 4" />
+                  {handles.map((h) => (
+                    <rect
+                      key={h.id}
+                      x={h.x - 4}
+                      y={h.y - 4}
+                      width={8}
+                      height={8}
+                      fill="#fff"
+                      stroke="#ff5858"
+                      strokeWidth={1.5}
+                      style={{ cursor: h.cursor }}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        resize.current = {
+                          id: sel.id,
+                          handle: h.id,
+                          startX: e.clientX,
+                          startY: e.clientY,
+                          origX: sel.x,
+                          origY: sel.y,
+                          origW: sel.width,
+                          origH: sel.height,
+                        };
+                      }}
+                    />
+                  ))}
+                </g>
+              );
+            })()}
           </g>
         </svg>
 
-        <ToolDock tool={tool} onTool={setTool} canEdit={canEdit} />
+        <ToolDock tool={tool} onTool={(t) => { if (editing) { const el = elementsArray.find((item) => item.id === editing.id); if (el) upsertElement({ ...el, text: editing.text }); setEditing(null); } setTool(t); }} canEdit={canEdit} />
+
+        {editing && (
+          <textarea
+            ref={textareaRef}
+            className="absolute z-30 overflow-hidden border-none bg-transparent p-3 text-sm text-inherit outline-none"
+            style={{
+              left: (editing.x - viewport.x) * viewport.scale,
+              top: (editing.y - viewport.y) * viewport.scale,
+              width: editing.width * viewport.scale,
+              height: editing.height * viewport.scale,
+              lineHeight: "18px",
+              fontFamily: "inherit",
+              resize: "none",
+              color: theme === "dark" ? "#e8eaf2" : "#151b31",
+            }}
+            value={editing.text}
+            onChange={(e) => {
+              setEditing((prev) => (prev ? { ...prev, text: e.target.value } : null));
+              const ta = textareaRef.current;
+              if (ta) {
+                ta.style.height = "auto";
+                ta.style.height = ta.scrollHeight + "px";
+              }
+            }}
+            onBlur={() => {
+              if (!editing) return;
+              const el = elementsArray.find((item) => item.id === editing.id);
+              if (el) upsertElement({ ...el, text: editing.text });
+              setEditing(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.stopPropagation();
+                setEditing(null);
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+                textareaRef.current?.blur();
+              }
+            }}
+          />
+        )}
+
+        {tool === "pen" && canEdit && (
+          <Card className="absolute left-4 top-4 w-[200px] ring-1 ring-foreground/10 shadow-lg">
+            <CardContent className="grid gap-3 pt-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate">Pen Options</p>
+              <div className="grid grid-cols-5 gap-1.5">
+                {["#151b31", "#e8eaf2", "#ff5858", "#86e0c1", "#fedf89"].map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`h-7 w-7 rounded-lg border transition hover:scale-105 ${penColor === color ? "border-2 border-mint-pulse" : "border-warm-stone"}`}
+                    style={{ background: color }}
+                    title={color}
+                    onClick={() => setPenColor(color)}
+                  />
+                ))}
+              </div>
+              <div className="flex gap-1.5">
+                {(["solid", "dashed", "dotted"] as const).map((style) => (
+                  <button
+                    key={style}
+                    type="button"
+                    className={`flex-1 rounded-lg border px-2 py-1 text-[11px] transition ${penStyle === style ? "bg-inkwell-navy text-paper-white" : "border-warm-stone text-inkwell-navy hover:bg-ash-canvas"}`}
+                    onClick={() => setPenStyle(style)}
+                  >
+                    {style.charAt(0).toUpperCase() + style.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {selected && canEdit ? (
           <Card className="absolute left-4 top-4 w-[280px] ring-1 ring-foreground/10 shadow-lg">
             <CardContent className="grid gap-3 pt-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate">Selected shape</p>
-              <TextInput
-                className="select-text"
-                value={selected.text}
-                onChange={(event) => upsert({ ...selected, text: event.target.value })}
-              />
+              {!editing && (
+                <TextInput
+                  className="select-text"
+                  value={selected.text}
+                  onChange={(event) => upsertElement({ ...selected, text: event.target.value })}
+                />
+              )}
               <div className="grid grid-cols-6 gap-1.5">
                 {FILL_PALETTE.map((color) => (
                   <button
@@ -818,7 +1113,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
                     className="h-7 w-7 rounded-lg border border-warm-stone transition hover:scale-105"
                     style={{ background: color }}
                     title={color}
-                    onClick={() => upsert({ ...selected, fill: color })}
+                    onClick={() => upsertElement({ ...selected, fill: color })}
                   />
                 ))}
               </div>
@@ -826,7 +1121,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
                 className="w-full"
                 variant="danger"
                 onClick={() => {
-                  remove(selected.id);
+                  removeEl(selected.id);
                   setSelectedId(null);
                 }}
               >
@@ -877,22 +1172,15 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
           {panel === "history" ? (
             <HistoryPane
               versions={versions}
-              canRestore={role === "owner"}
+              canRestore={role === "owner" || role === "editor"}
               onSave={async () => {
-                const data = await api<{ versions: VersionRecord[] }>(`/api/boards/${boardId}/versions`, {
-                  method: "POST",
-                  body: JSON.stringify({ label: "Named snapshot" }),
-                });
-                setVersions(data.versions);
+                await saveSnapshot("Manual snapshot");
               }}
-              onRestore={async (id) => {
+              onRestore={async (versionId) => {
                 await api(`/api/boards/${boardId}/versions`, {
                   method: "POST",
-                  body: JSON.stringify({ restoreId: id }),
+                  body: JSON.stringify({ restoreId: versionId }),
                 });
-                const data = await api<{ elements: DiagramElementRecord[] }>(`/api/boards/${boardId}`);
-                setElements(data.elements);
-                sendOp({ kind: "replaceAll", elements: data.elements });
               }}
             />
           ) : null}

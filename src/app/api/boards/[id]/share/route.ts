@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
+import { Liveblocks } from "@liveblocks/node";
 import { boardManager } from "@/board/Board";
 import { BoardMember, Invitation } from "@/sharing/Invitation";
 import { permissionChecker } from "@/sharing/PermissionChecker";
 import { jsonError, requireUser } from "@/lib/http";
 import type { BoardRole } from "@/lib/types";
+
+const liveblocks = new Liveblocks({
+  secret: process.env.LIVEBLOCKS_SECRET_KEY ?? "",
+});
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -38,6 +43,9 @@ export async function POST(request: Request, ctx: Ctx) {
     if (body.revokeUserId) {
       if (body.revokeUserId === user.record.id) throw new Error("You cannot revoke your own access.");
       BoardMember.revokeAccess(id, body.revokeUserId);
+      await liveblocks.updateRoom(id, {
+        usersAccesses: { [body.revokeUserId]: null },
+      });
     } else if (body.revokeInviteId) {
       Invitation.revoke(body.revokeInviteId, id);
     } else {
