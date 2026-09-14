@@ -40,7 +40,11 @@ export function RoleBadge({ role }: { role: string }) {
   const normalized = role.toLowerCase();
   const tone: TagTone =
     normalized === "owner" ? "navy" : normalized === "editor" ? "mint" : "ash";
-  return <TagBadge tone={tone}>{role}</TagBadge>;
+  return (
+    <TagBadge tone={tone} className="h-5 px-2 text-[9.5px] font-bold tracking-wide uppercase shrink-0 rounded-md">
+      {role}
+    </TagBadge>
+  );
 }
 
 export function TemplateTag({ kind, label }: { kind: string; label?: string }) {

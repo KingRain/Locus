@@ -39,12 +39,20 @@ export async function POST(request: Request, ctx: Ctx) {
       role?: BoardRole;
       revokeUserId?: string;
       revokeInviteId?: string;
+      updateUserId?: string;
+      updateRole?: BoardRole;
     };
     if (body.revokeUserId) {
       if (body.revokeUserId === user.record.id) throw new Error("You cannot revoke your own access.");
       BoardMember.revokeAccess(id, body.revokeUserId);
       await liveblocks.updateRoom(id, {
         usersAccesses: { [body.revokeUserId]: null },
+      });
+    } else if (body.updateUserId && body.updateRole) {
+      if (body.updateUserId === user.record.id) throw new Error("You cannot change your own role.");
+      BoardMember.assignRole(id, body.updateUserId, body.updateRole);
+      await liveblocks.updateRoom(id, {
+        usersAccesses: { [body.updateUserId]: body.updateRole === "viewer" ? ["room:read", "room:presence:write"] : ["room:write"] },
       });
     } else if (body.revokeInviteId) {
       Invitation.revoke(body.revokeInviteId, id);

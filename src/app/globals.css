@@ -72,6 +72,7 @@
 
 html {
   background: var(--color-ash-canvas);
+  overflow-x: hidden;
 }
 
 body {
@@ -80,6 +81,7 @@ body {
   color: var(--color-inkwell-navy);
   font-family: var(--font-sans);
   letter-spacing: -0.01em;
+  overflow-x: hidden;
 }
 
 .font-display {

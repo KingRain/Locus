@@ -14,10 +14,13 @@ export type ShapeData = {
   stroke: string;
   strokeStyle: "solid" | "dashed" | "dotted";
   text: string;
+  textAlign: "left" | "center" | "right";
   fromId: string | null;
   toId: string | null;
   cx: number;
   cy: number;
+  fontSize?: number;
+  shapeId?: string;
   zIndex: number;
   updatedAt: number;
 };

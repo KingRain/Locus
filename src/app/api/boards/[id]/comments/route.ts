@@ -27,8 +27,11 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     const body = (await request.json()) as {
       content?: string;
+      elementId?: string;
       parentId?: string;
       resolveId?: string;
+      x?: number;
+      y?: number;
     };
     if (body.resolveId) {
       CommentThread.resolve(id, body.resolveId);
@@ -37,7 +40,10 @@ export async function POST(request: Request, ctx: Ctx) {
         boardId: id,
         userId: user.record.id,
         content: body.content ?? "",
+        elementId: body.elementId,
         parentId: body.parentId,
+        x: body.x,
+        y: body.y,
       });
     }
     return NextResponse.json({ comments: CommentThread.list(id) });

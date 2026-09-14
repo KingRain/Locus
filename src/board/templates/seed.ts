@@ -7,12 +7,13 @@ const BOX = {
 };
 
 function el(
-  partial: Omit<DiagramElementRecord, "boardId" | "updatedAt" | "rotation" | "fromId" | "toId"> &
-    Partial<Pick<DiagramElementRecord, "fromId" | "toId">>,
+  partial: Omit<DiagramElementRecord, "boardId" | "updatedAt" | "rotation" | "fromId" | "toId" | "textAlign"> &
+    Partial<Pick<DiagramElementRecord, "fromId" | "toId" | "textAlign">>,
 ): DiagramElementRecord {
   return {
     boardId: "template",
     rotation: 0,
+    textAlign: "left",
     fromId: null,
     toId: null,
     updatedAt: 0,

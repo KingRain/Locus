@@ -64,6 +64,7 @@ function createDb(): DatabaseSync {
       fill TEXT NOT NULL,
       stroke TEXT NOT NULL,
       text TEXT NOT NULL DEFAULT '',
+      text_align TEXT NOT NULL DEFAULT 'left',
       from_id TEXT,
       to_id TEXT,
       z_index INTEGER NOT NULL DEFAULT 0,
@@ -78,6 +79,8 @@ function createDb(): DatabaseSync {
       user_id TEXT NOT NULL REFERENCES users(id),
       content TEXT NOT NULL,
       resolved INTEGER NOT NULL DEFAULT 0,
+      x REAL,
+      y REAL,
       created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS comments_by_board ON comments(board_id);
@@ -120,7 +123,14 @@ function createDb(): DatabaseSync {
       created_at INTEGER NOT NULL
     );
   `);
+  try {
+    db.exec(`ALTER TABLE diagram_elements ADD COLUMN text_align TEXT NOT NULL DEFAULT 'left'`);
+  } catch {
+    // column already exists
+  }
   seedTemplates(db);
+  try { db.exec("ALTER TABLE comments ADD COLUMN x REAL;"); } catch {}
+  try { db.exec("ALTER TABLE comments ADD COLUMN y REAL;"); } catch {}
   return db;
 }
 

@@ -13,6 +13,7 @@ type ElementRow = {
   fill: string;
   stroke: string;
   text: string;
+  text_align: "left" | "center" | "right";
   from_id: string | null;
   to_id: string | null;
   z_index: number;
@@ -32,6 +33,7 @@ function mapElement(row: ElementRow): DiagramElementRecord {
     fill: row.fill,
     stroke: row.stroke,
     text: row.text,
+    textAlign: row.text_align ?? "left",
     fromId: row.from_id,
     toId: row.to_id,
     zIndex: row.z_index,
@@ -43,7 +45,7 @@ export class DiagramElement {
   static list(boardId: string): DiagramElementRecord[] {
     const rows = getDb()
       .prepare(
-        `SELECT id, board_id, type, x, y, width, height, rotation, fill, stroke, text, from_id, to_id, z_index, updated_at
+        `SELECT id, board_id, type, x, y, width, height, rotation, fill, stroke, text, COALESCE(text_align, 'left') AS text_align, from_id, to_id, z_index, updated_at
          FROM diagram_elements WHERE board_id = ? ORDER BY z_index ASC`,
       )
       .all(boardId) as ElementRow[];
@@ -55,11 +57,12 @@ export class DiagramElement {
     getDb()
       .prepare(
         `INSERT INTO diagram_elements (
-           id, board_id, type, x, y, width, height, rotation, fill, stroke, text, from_id, to_id, z_index, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           id, board_id, type, x, y, width, height, rotation, fill, stroke, text, text_align, from_id, to_id, z_index, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            type=excluded.type, x=excluded.x, y=excluded.y, width=excluded.width, height=excluded.height,
            rotation=excluded.rotation, fill=excluded.fill, stroke=excluded.stroke, text=excluded.text,
+           text_align=excluded.text_align,
            from_id=excluded.from_id, to_id=excluded.to_id, z_index=excluded.z_index, updated_at=excluded.updated_at`,
       )
       .run(
@@ -74,6 +77,7 @@ export class DiagramElement {
         updated.fill,
         updated.stroke,
         updated.text,
+        updated.textAlign ?? "left",
         updated.fromId,
         updated.toId,
         updated.zIndex,

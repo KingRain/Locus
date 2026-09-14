@@ -9,10 +9,14 @@ export type ElementType =
   | "sticky"
   | "path"
   | "line"
-  | "arrow";
+  | "arrow"
+  | "image"
+  | "svg"
+  | "group";
 export type TemplateKind = "uml" | "flowchart" | "er" | "architecture";
 export type Tool =
   | "select"
+  | "hand"
   | "pen"
   | "rect"
   | "ellipse"
@@ -22,7 +26,9 @@ export type Tool =
   | "arrow"
   | "connector"
   | "sticky"
-  | "eraser";
+  | "eraser"
+  | "image"
+  | "group";
 
 export type UserRecord = {
   id: string;
@@ -67,6 +73,7 @@ export type DiagramElementRecord = {
   fill: string;
   stroke: string;
   text: string;
+  textAlign: "left" | "center" | "right";
   fromId: string | null;
   toId: string | null;
   zIndex: number;
@@ -80,8 +87,11 @@ export type CommentRecord = {
   parentId: string | null;
   userId: string;
   authorName: string;
+  authorAvatar?: string;
   content: string;
   resolved: boolean;
+  x?: number | null;
+  y?: number | null;
   createdAt: number;
 };
 

@@ -11,6 +11,7 @@
   "dependencies": {
     "@clerk/nextjs": "^7.9.1",
     "@clerk/ui": "^1.32.2",
+    "@google/genai": "^2.22.0",
     "@liveblocks/client": "^2.17.1",
     "@liveblocks/node": "^2.17.1",
     "@liveblocks/react": "^2.17.1",

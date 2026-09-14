@@ -19,9 +19,10 @@ export function EditableBoardTitle({
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (!editing) setValue(title);
-  }, [title, editing]);
+  // Sync state only if not editing and the external title changed
+  if (!editing && value !== title) {
+    setValue(title);
+  }
 
   useEffect(() => {
     if (editing) inputRef.current?.focus();

@@ -167,6 +167,32 @@ export function shapeEdgePoint(
   return { x: c.x - ux * t, y: c.y - uy * t };
 }
 
+export function translatePath(d: string, dx: number, dy: number): string {
+  return d.replace(/([ML])\s*([-\d.]+)\s+([-\d.]+)/g, (_match, cmd, xStr, yStr) => {
+    const x = Number.parseFloat(xStr) + dx;
+    const y = Number.parseFloat(yStr) + dy;
+    return `${cmd} ${x.toFixed(2)} ${y.toFixed(2)}`;
+  });
+}
+
+export function getPathBounds(d: string): { x: number; y: number; width: number; height: number } {
+  const pts = parsePathPoints(d);
+  if (pts.length === 0) return { x: 0, y: 0, width: 50, height: 50 };
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(20, maxX - minX),
+    height: Math.max(20, maxY - minY),
+  };
+}
+
 export function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }

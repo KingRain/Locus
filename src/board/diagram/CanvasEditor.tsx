@@ -17,38 +17,42 @@ import type { ShapeData } from "../../../liveblocks.config";
 import { api } from "@/lib/api";
 import { Logo } from "@/components/brand";
 import {
-  Download,
-  History,
-  LayoutDashboard,
-  MessageSquare,
   Share2,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from "@/components/icons";
-import { Button, TextInput } from "@/components/locus-ui";
-import { RoleBadge, TagBadge } from "@/components/tag-badge";
-import { BoardSidePanel, PanelSection } from "@/board/diagram/BoardSidePanel";
+import { Send, Shapes, Sparkles, Trash2, Copy, ArrowUp, ArrowDown } from "lucide-react";
+import { Button } from "@/components/locus-ui";
+import { BoardSidePanel } from "@/board/diagram/BoardSidePanel";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Button as ShadButton } from "@/components/ui/button";
+import { ContextMenu } from "@/components/canvas/ContextMenu";
+import { ZoomControls } from "@/components/canvas/ZoomControls";
+import { HamburgerMenu } from "@/components/canvas/HamburgerMenu";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
+import { ExportModal } from "@/components/canvas/ExportModal";
 import { ToolDock } from "@/board/diagram/ToolDock";
 import { EditableBoardTitle } from "@/board/diagram/EditableBoardTitle";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { getShapeDefinition } from "@/board/diagram/shapes/shape-library";
 import { useTheme } from "@/components/theme-provider";
 import { recordRecentBoard } from "@/lib/recent-boards";
 import {
-  center,
   clamp,
   elementIntersectsRect,
   FILL_PALETTE,
   hitTest,
   hitTestEraser,
-  shapeEdgePoint,
+  translatePath,
 } from "@/board/diagram/canvas-utils";
+import { computePretextLayout } from "@/board/diagram/pretext-text";
 import { toolFromShortcut } from "@/board/diagram/tool-shortcuts";
 import type {
   BoardRecord,
   BoardRole,
   CommentRecord,
+  DiagramElementRecord,
   ElementType,
   InvitationRecord,
   Tool,
@@ -58,6 +62,24 @@ import type {
 function defaultFill(type: string): string {
   if (type === "sticky") return "#fedf89";
   return "#ffffff";
+}
+
+function measureText(text: string): { width: number; height: number } {
+  if (typeof document === "undefined") return { width: 200, height: 48 };
+  const span = document.createElement("span");
+  span.style.cssText = "position:absolute;visibility:hidden;font-size:14px;font-family:Inter,system-ui,sans-serif;white-space:pre;";
+  document.body.appendChild(span);
+  const lines = text.split("\n");
+  let maxWidth = 0;
+  for (const line of lines) {
+    span.textContent = line || " ";
+    maxWidth = Math.max(maxWidth, span.getBoundingClientRect().width);
+  }
+  document.body.removeChild(span);
+  const lineHeight = 18;
+  const height = Math.max(48, lines.length * lineHeight + 32);
+  const width = Math.max(80, maxWidth + 28);
+  return { width, height };
 }
 
 function toolToElementType(tool: Tool): ElementType | null {
@@ -73,198 +95,42 @@ function toolToElementType(tool: Tool): ElementType | null {
   return map[tool] ?? null;
 }
 
-function Shape({
-  element,
-  selected,
-  others,
-  darkMode,
-}: {
-  element: ShapeData;
-  selected: boolean;
-  others: ShapeData[];
-  darkMode: boolean;
-}) {
-  const textColor = element.fill === "#151b31" ? "#ffffff" : darkMode ? "#e8eaf2" : "#151b31";
-  let stroke = selected ? "#ff5858" : element.stroke;
-  if (darkMode && stroke === "#151b31") {
-    stroke = "#e8eaf2";
-  }
-  const strokeDasharray = element.strokeStyle === "dashed" ? "8 4" : element.strokeStyle === "dotted" ? "2 4" : undefined;
-  const common = { fill: element.fill, stroke, strokeWidth: selected ? 3 : 2 };
-  const lines = element.text.split("\n");
-
-  if (element.type === "path") {
-    return (
-      <path
-        d={element.text}
-        fill="none"
-        stroke={stroke}
-        strokeWidth={2.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeDasharray={strokeDasharray}
-      />
-    );
-  }
-
-  if (element.type === "line" || element.type === "arrow") {
-    const hasCurve = element.cx !== 0 || element.cy !== 0;
-    if (hasCurve) {
-      const d = `M ${element.x} ${element.y} Q ${element.cx} ${element.cy} ${element.width} ${element.height}`;
-      return (
-        <path
-          d={d}
-          fill="none"
-          stroke={stroke}
-          strokeWidth={2}
-          strokeDasharray={strokeDasharray}
-          markerEnd={element.type === "arrow" ? "url(#arrow)" : undefined}
-        />
-      );
-    }
-    return (
-      <line
-        x1={element.x}
-        y1={element.y}
-        x2={element.width}
-        y2={element.height}
-        stroke={stroke}
-        strokeWidth={2}
-        strokeDasharray={strokeDasharray}
-        markerEnd={element.type === "arrow" ? "url(#arrow)" : undefined}
-      />
-    );
-  }
-
-  if (element.type === "connector") {
-    const from = others.find((item) => item.id === element.fromId);
-    const to = others.find((item) => item.id === element.toId);
-    if (!from || !to) return null;
-    const fromCenter = center(from);
-    const toCenter = center(to);
-    const start = shapeEdgePoint(toCenter, from);
-    const end = shapeEdgePoint(fromCenter, to);
-    return (
-      <g>
-        <line
-          x1={start.x}
-          y1={start.y}
-          x2={end.x}
-          y2={end.y}
-          stroke={stroke}
-          strokeWidth={2}
-          markerEnd="url(#arrow)"
-        />
-        {element.text ? (
-          <text
-            x={(start.x + end.x) / 2}
-            y={(start.y + end.y) / 2 - 8}
-            textAnchor="middle"
-            fontSize="12"
-            fill={darkMode ? "#e8eaf2" : "#151b31"}
-          >
-            {element.text}
-          </text>
-        ) : null}
-      </g>
-    );
-  }
-
-  if (element.type === "ellipse") {
-    return (
-      <g>
-        <ellipse
-          cx={element.x + element.width / 2}
-          cy={element.y + element.height / 2}
-          rx={element.width / 2}
-          ry={element.height / 2}
-          {...common}
-        />
-        <text
-          x={element.x + element.width / 2}
-          y={element.y + element.height / 2}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fontSize="14"
-          fill={textColor}
-        >
-          {element.text}
-        </text>
-      </g>
-    );
-  }
-
-  if (element.type === "diamond") {
-    const cx = element.x + element.width / 2;
-    const cy = element.y + element.height / 2;
-    const points = `${cx},${element.y} ${element.x + element.width},${cy} ${cx},${element.y + element.height} ${element.x},${cy}`;
-    return (
-      <g>
-        <polygon points={points} {...common} />
-        <text
-          x={cx}
-          y={cy}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fontSize="14"
-          fill={textColor}
-        >
-          {element.text}
-        </text>
-      </g>
-    );
-  }
-
-  if (element.type === "text") {
-    return (
-      <text x={element.x + 14} y={element.y + 26} fontSize="14" fill={textColor}>
-        {lines.map((line, index) => (
-          <tspan key={line + index} x={element.x + 14} dy={index === 0 ? 0 : 18}>
-            {line}
-          </tspan>
-        ))}
-      </text>
-    );
-  }
-
-  return (
-    <g>
-      <rect
-        x={element.x}
-        y={element.y}
-        width={element.width}
-        height={element.height}
-        rx={element.type === "sticky" ? 8 : 12}
-        {...common}
-      />
-      <text x={element.x + 14} y={element.y + 26} fontSize="14" fill={textColor}>
-        {lines.map((line, index) => (
-          <tspan key={line + index} x={element.x + 14} dy={index === 0 ? 0 : 18}>
-            {line}
-          </tspan>
-        ))}
-      </text>
-    </g>
-  );
-}
+import { Shape } from "@/board/diagram/Shape";
 
 export function BoardWorkspace({ boardId }: { boardId: string }) {
   const router = useRouter();
   const { user: clerkUser, isLoaded } = useUser();
   const [board, setBoard] = useState<BoardRecord | null>(null);
   const [role, setRole] = useState<BoardRole>("viewer");
+  const canEdit = role === "owner" || role === "editor";
   const [tool, setTool] = useState<Tool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isSpacePressed, setIsSpacePressed] = useState(false);
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 });
-  const [panel, setPanel] = useState<"none" | "comments" | "share" | "history">("none");
+  const [panel, setPanel] = useState<"none" | "share" | "history" | "shapes" | "ai">("none");
+  const pointersRef = useRef(new Map<number, { x: number, y: number }>());
   const [comments, setComments] = useState<CommentRecord[]>([]);
   const [versions, setVersions] = useState<VersionRecord[]>([]);
-  const [members, setMembers] = useState<{ name?: string; email?: string; role: string; userId: string }[]>([]);
+  const [members, setMembers] = useState<{ name?: string; email?: string; role: string; userId: string; avatar?: string }[]>([]);
   const [invites, setInvites] = useState<InvitationRecord[]>([]);
   const [preview, setPreview] = useState<{ kind: "line" | "rect"; x1: number; y1: number; x2: number; y2: number } | { kind: "path"; d: string } | { kind: "marquee"; x1: number; y1: number; x2: number; y2: number } | null>(null);
 
-  const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
+  const drag = useRef<{
+    startX: number;
+    startY: number;
+    initials: Array<{
+      id: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      cx: number;
+      cy: number;
+      type: ElementType;
+      text: string;
+    }>;
+  } | null>(null);
   const resize = useRef<{ id: string; handle: string; startX: number; startY: number; origX: number; origY: number; origW: number; origH: number } | null>(null);
   const arrowJoint = useRef<{ id: string; joint: "start" | "middle" | "end"; startX: number; startY: number } | null>(null);
   const draft = useRef<{ type: ElementType; x: number; y: number } | null>(null);
@@ -275,13 +141,83 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
   const [editing, setEditing] = useState<{ id: string; x: number; y: number; width: number; height: number; text: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const viewportRef = useRef(viewport);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const pinchRef = useRef<{ dist: number; cx: number; cy: number; origX: number; origY: number; origScale: number } | null>(null);
+  const didPanRef = useRef(false);
 
-  useEffect(() => {
-    viewportRef.current = viewport;
-  });
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; canvasX: number; canvasY: number; targetId: string | null } | null>(null);
+  const [commentDraft, setCommentDraft] = useState<{ x: number; y: number; elementId: string | null } | null>(null);
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
-  const canEdit = role === "owner" || role === "editor";
+  async function confirmDeleteCurrentBoard() {
+    setDeleteModalOpen(false);
+    await api(`/api/boards/${boardId}`, {
+      method: "DELETE",
+    });
+    router.push("/dashboard");
+  }
+
+  function handleZoomIn() {
+    setViewport((v) => ({ ...v, scale: Math.min(3, Number((v.scale * 1.2).toFixed(2))) }));
+  }
+
+  function handleZoomOut() {
+    setViewport((v) => ({ ...v, scale: Math.max(0.2, Number((v.scale / 1.2).toFixed(2))) }));
+  }
+
+  function handleResetZoom() {
+    setViewport({ x: 0, y: 0, scale: 1 });
+  }
+
+  function handleFitCanvas() {
+    if (elementsArray.length === 0) {
+      setViewport({ x: 0, y: 0, scale: 1 });
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const el of elementsArray) {
+      minX = Math.min(minX, el.x);
+      minY = Math.min(minY, el.y);
+      maxX = Math.max(maxX, el.x + el.width);
+      maxY = Math.max(maxY, el.y + el.height);
+    }
+    const width = maxX - minX || 800;
+    const height = maxY - minY || 600;
+    const scale = Math.min(1.5, Math.max(0.3, Math.min(window.innerWidth / (width + 200), window.innerHeight / (height + 200))));
+    setViewport({ x: minX - 100, y: minY - 100, scale: Number(scale.toFixed(2)) });
+  }
+
+  function bringToFront(id: string) {
+    const el = elementsArray.find((item) => item.id === id);
+    if (!el) return;
+    const maxZ = Math.max(0, ...elementsArray.map((item) => item.zIndex ?? 0));
+    upsertElement({ ...el, zIndex: maxZ + 1 });
+  }
+
+  function sendToBack(id: string) {
+    const el = elementsArray.find((item) => item.id === id);
+    if (!el) return;
+    const minZ = Math.min(0, ...elementsArray.map((item) => item.zIndex ?? 0));
+    upsertElement({ ...el, zIndex: minZ - 1 });
+  }
+
+  function duplicateElement(id: string) {
+    const el = elementsArray.find((item) => item.id === id);
+    if (!el) return;
+    const newId = crypto.randomUUID();
+    const clone = {
+      ...el,
+      id: newId,
+      x: el.x + 20,
+      y: el.y + 20,
+      zIndex: elementsArray.length + 1,
+      updatedAt: Date.now(),
+    };
+    upsertElement(clone);
+    setSelectedId(newId);
+  }
 
   const elements = useStorage((root) => root.elements);
   const others = useOthers();
@@ -320,9 +256,32 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     void boot();
   }, [boardId, clerkUser, isLoaded, router]);
 
+  function removeEl(elementId: string) {
+    if (canEdit) removeElement(elementId);
+  }
+
+  function deleteSelectedElements() {
+    if (!canEdit) return;
+    const toDelete = new Set<string>();
+    if (selectedId) toDelete.add(selectedId);
+    selectedIds.forEach((id) => toDelete.add(id));
+
+    if (toDelete.size > 0) {
+      toDelete.forEach((id) => removeEl(id));
+      setSelectedId(null);
+      setSelectedIds(new Set());
+    }
+  }
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+
+      if (event.code === "Space" && !event.repeat) {
+        setIsSpacePressed(true);
+        event.preventDefault();
+        return;
+      }
 
       if ((event.metaKey || event.ctrlKey) && !event.altKey) {
         if (event.key === "z" && !event.shiftKey) {
@@ -343,6 +302,14 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         return;
       }
 
+      if (event.key === "Backspace" || event.key === "Delete") {
+        if (canEdit && !editing) {
+          deleteSelectedElements();
+          event.preventDefault();
+        }
+        return;
+      }
+
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const next = toolFromShortcut(event.key);
       if (next && canEdit) {
@@ -355,37 +322,202 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         event.preventDefault();
       }
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canEdit, undo, redo]);
 
-  useEffect(() => {
-    const svg = svgRef.current;
-    if (!svg) return;
-
-    function onWheel(event: WheelEvent) {
-      if (!event.ctrlKey) return;
-      event.preventDefault();
-      const rect = svg!.getBoundingClientRect();
-      const mx = event.clientX - rect.left;
-      const my = event.clientY - rect.top;
-      const vp = viewportRef.current;
-      const worldX = (mx - vp.x) / vp.scale;
-      const worldY = (my - vp.y) / vp.scale;
-      const delta = -event.deltaY * 0.001;
-      const newScale = clamp(vp.scale * (1 + delta), 0.25, 4);
-      setViewport({
-        scale: newScale,
-        x: mx - worldX * newScale,
-        y: my - worldY * newScale,
-      });
+    function onKeyUp(event: KeyboardEvent) {
+      if (event.code === "Space") {
+        setIsSpacePressed(false);
+      }
     }
 
-    svg.addEventListener("wheel", onWheel, { passive: false });
-    return () => svg.removeEventListener("wheel", onWheel);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+  }, [canEdit, undo, redo, selectedId, selectedIds, editing, elementsArray]);
+
+  useEffect(() => {
+    function onWheel(evt: Event) {
+      const event = evt as WheelEvent;
+      const target = event.target as HTMLElement | Element | null;
+      if (target && target.closest("aside, [data-side-panel]")) {
+        return;
+      }
+
+      const container = containerRef.current || svgRef.current;
+      if (!container) return;
+
+      const rect = container.getBoundingClientRect();
+      const isInside =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+
+      if (!isInside) return;
+
+      event.preventDefault();
+
+      const mx = event.clientX - rect.left;
+      const my = event.clientY - rect.top;
+
+      if (event.ctrlKey || event.metaKey) {
+        // Pinch-to-zoom (Trackpad pinch or Ctrl + Scroll wheel)
+        const factor = event.deltaMode === 1 ? 0.05 : event.deltaMode === 2 ? 1 : 0.005;
+        const delta = -event.deltaY * factor;
+
+        setViewport((vp) => {
+          const worldX = (mx - vp.x) / vp.scale;
+          const worldY = (my - vp.y) / vp.scale;
+          const newScale = clamp(vp.scale * Math.pow(2, delta), 0.15, 5);
+          return {
+            scale: newScale,
+            x: mx - worldX * newScale,
+            y: my - worldY * newScale,
+          };
+        });
+      } else {
+        // Two-finger trackpad panning / scroll wheel panning
+        let dx = event.deltaX;
+        let dy = event.deltaY;
+
+        if (event.deltaMode === 1) {
+          // DOM_DELTA_LINE
+          dx *= 24;
+          dy *= 24;
+        } else if (event.deltaMode === 2) {
+          // DOM_DELTA_PAGE
+          dx *= container.clientWidth;
+          dy *= container.clientHeight;
+        }
+
+        if (event.shiftKey && dx === 0 && dy !== 0) {
+          dx = dy;
+          dy = 0;
+        }
+
+        setViewport((vp) => ({
+          scale: vp.scale,
+          x: vp.x - dx,
+          y: vp.y - dy,
+        }));
+      }
+    }
+
+    function preventGesture(evt: Event) {
+      const target = evt.target as HTMLElement | Element | null;
+      if (target && target.closest("aside, [data-side-panel]")) return;
+      const container = containerRef.current || svgRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const me = evt as MouseEvent;
+      if (me.clientX >= rect.left && me.clientX <= rect.right && me.clientY >= rect.top && me.clientY <= rect.bottom) {
+        evt.preventDefault();
+      }
+    }
+
+    window.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("gesturestart", preventGesture, { passive: false });
+    window.addEventListener("gesturechange", preventGesture, { passive: false });
+
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("gesturestart", preventGesture);
+      window.removeEventListener("gesturechange", preventGesture);
+    };
   }, []);
 
+  useEffect(() => {
+    function handlePaste(event: ClipboardEvent) {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+
+      const items = event.clipboardData?.items;
+      if (!items) return;
+
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (!file) continue;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            if (!dataUrl) return;
+
+            const id = crypto.randomUUID();
+            const cx = viewport.x + (window.innerWidth / 2) * viewport.scale;
+            const cy = viewport.y + (window.innerHeight / 2) * viewport.scale;
+
+            const img = new window.Image();
+            img.onload = () => {
+              const aspect = img.width / img.height || 4 / 3;
+              const w = Math.min(400, Math.max(150, img.width));
+              const h = w / aspect;
+
+              upsertElement({
+                id,
+                boardId,
+                type: "image",
+                x: cx - w / 2,
+                y: cy - h / 2,
+                width: w,
+                height: h,
+                rotation: 0,
+                fill: "#ffffff",
+                stroke: "#151b31",
+                strokeStyle: "solid",
+                text: dataUrl,
+                textAlign: "left",
+                fromId: null,
+                toId: null,
+                cx: 0,
+                cy: 0,
+                zIndex: elementsArray.length + 1,
+                updatedAt: Date.now(),
+              });
+              setSelectedId(id);
+              setSelectedIds(new Set([id]));
+            };
+            img.src = dataUrl;
+          };
+          reader.readAsDataURL(file);
+          event.preventDefault();
+          return;
+        }
+      }
+    }
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [boardId, canEdit, viewport, elementsArray]);
+
   const selected = elementsArray.find((item) => item.id === selectedId) ?? null;
+
+  const selectedElements = useMemo(() => {
+    const ids = new Set(selectedIds);
+    if (selectedId) ids.add(selectedId);
+    return elementsArray.filter((el) => ids.has(el.id));
+  }, [elementsArray, selectedId, selectedIds]);
+
+  const selectionBounds = useMemo(() => {
+    if (selectedElements.length === 0) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const el of selectedElements) {
+      if (el.type === "line" || el.type === "arrow") {
+        minX = Math.min(minX, el.x, el.width);
+        minY = Math.min(minY, el.y, el.height);
+        maxX = Math.max(maxX, el.x, el.width);
+        maxY = Math.max(maxY, el.y, el.height);
+      } else {
+        minX = Math.min(minX, el.x);
+        minY = Math.min(minY, el.y);
+        maxX = Math.max(maxX, el.x + (el.width || 0));
+        maxY = Math.max(maxY, el.y + (el.height || 0));
+      }
+    }
+    return { minX, minY, maxX, maxY };
+  }, [selectedElements]);
 
   function point(event: React.PointerEvent<SVGSVGElement>) {
     const svg = svgRef.current;
@@ -410,10 +542,6 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     if (canEdit) addElement(element);
   }
 
-  function removeEl(elementId: string) {
-    if (canEdit) removeElement(elementId);
-  }
-
   function onPointerDown(event: React.PointerEvent<SVGSVGElement>) {
     event.preventDefault();
 
@@ -423,12 +551,27 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
       setEditing(null);
     }
 
-    if (event.button === 1) {
+    if (event.button === 1 || event.button === 2 || isSpacePressed || tool === "hand") {
       const sp = screenPoint(event);
       panRef.current = { startX: sp.x, startY: sp.y, origX: viewport.x, origY: viewport.y };
+      didPanRef.current = false;
       event.currentTarget.setPointerCapture(event.pointerId);
       return;
     }
+
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointersRef.current.size === 2) {
+      const pts = Array.from(pointersRef.current.values());
+      if (pts[0] && pts[1]) {
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const cx = (pts[0].x + pts[1].x) / 2;
+        const cy = (pts[0].y + pts[1].y) / 2;
+        pinchRef.current = { dist, cx, cy, origX: viewport.x, origY: viewport.y, origScale: viewport.scale };
+        return;
+      }
+    }
+
+    if (pointersRef.current.size > 1) return;
 
     event.currentTarget.setPointerCapture(event.pointerId);
     const p = point(event);
@@ -452,12 +595,45 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     if (tool === "select") {
       const hit = hitTest(elementsArray, p);
       if (hit) {
-        setSelectedId(hit.id);
-        setSelectedIds(new Set([hit.id]));
-        drag.current = { id: hit.id, dx: p.x - hit.x, dy: p.y - hit.y };
+        let activeSet = new Set(selectedIds);
+        if (event.shiftKey) {
+          if (activeSet.has(hit.id)) {
+            activeSet.delete(hit.id);
+          } else {
+            activeSet.add(hit.id);
+          }
+        } else {
+          if (!activeSet.has(hit.id)) {
+            activeSet = new Set([hit.id]);
+          }
+        }
+        setSelectedIds(activeSet);
+        setSelectedId(activeSet.has(hit.id) ? hit.id : Array.from(activeSet)[0] ?? null);
+
+        const initials = elementsArray
+          .filter((item) => activeSet.has(item.id))
+          .map((item) => ({
+            id: item.id,
+            x: item.x,
+            y: item.y,
+            width: item.width,
+            height: item.height,
+            cx: item.cx,
+            cy: item.cy,
+            type: item.type,
+            text: item.text,
+          }));
+
+        drag.current = {
+          startX: p.x,
+          startY: p.y,
+          initials,
+        };
       } else {
-        setSelectedId(null);
-        setSelectedIds(new Set());
+        if (!event.shiftKey) {
+          setSelectedId(null);
+          setSelectedIds(new Set());
+        }
         marqueeRef.current = p;
         setPreview({ kind: "marquee", x1: p.x, y1: p.y, x2: p.x, y2: p.y });
       }
@@ -490,6 +666,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         stroke: defaultStroke,
         strokeStyle: "solid",
         text: "",
+        textAlign: "left",
         fromId: connectorFrom.current,
         toId: hit.id,
         cx: 0,
@@ -513,14 +690,57 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
   function onPointerMove(event: React.PointerEvent<SVGSVGElement>) {
     event.preventDefault();
 
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+
+    if (pointersRef.current.size === 2 && pinchRef.current) {
+      const pts = Array.from(pointersRef.current.values());
+      if (pts[0] && pts[1]) {
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const cx = (pts[0].x + pts[1].x) / 2;
+        const cy = (pts[0].y + pts[1].y) / 2;
+
+        const scaleFactor = dist / (pinchRef.current.dist || 1);
+        const dx = cx - pinchRef.current.cx;
+        const dy = cy - pinchRef.current.cy;
+
+        const container = containerRef.current || svgRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const mx = pinchRef.current.cx - rect.left;
+          const my = pinchRef.current.cy - rect.top;
+
+          setViewport(() => {
+            const newScale = clamp(pinchRef.current!.origScale * scaleFactor, 0.15, 5);
+            const worldX = (mx - pinchRef.current!.origX) / pinchRef.current!.origScale;
+            const worldY = (my - pinchRef.current!.origY) / pinchRef.current!.origScale;
+
+            return {
+              scale: newScale,
+              x: mx - worldX * newScale + dx,
+              y: my - worldY * newScale + dy,
+            };
+          });
+        }
+        return;
+      }
+    }
+
+    if (pointersRef.current.size > 1) return;
+
     if (panRef.current) {
+      const { startX, startY, origX, origY } = panRef.current;
       const sp = screenPoint(event);
-      const dx = sp.x - panRef.current.startX;
-      const dy = sp.y - panRef.current.startY;
+      const dx = sp.x - startX;
+      const dy = sp.y - startY;
+      if (Math.hypot(dx, dy) > 3) {
+        didPanRef.current = true;
+      }
       setViewport((current) => ({
         ...current,
-        x: panRef.current!.origX + dx,
-        y: panRef.current!.origY + dy,
+        x: origX + dx,
+        y: origY + dy,
       }));
       return;
     }
@@ -567,9 +787,32 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
 
     if (drag.current) {
-      const current = elementsArray.find((item) => item.id === drag.current?.id);
-      if (!current) return;
-      upsertElement({ ...current, x: p.x - drag.current.dx, y: p.y - drag.current.dy });
+      const dx = p.x - drag.current.startX;
+      const dy = p.y - drag.current.startY;
+      for (const init of drag.current.initials) {
+        const current = elementsArray.find((item) => item.id === init.id);
+        if (!current) continue;
+        if (current.type === "path") {
+          const newX = init.x + dx;
+          const newY = init.y + dy;
+          const deltaX = newX - current.x;
+          const deltaY = newY - current.y;
+          const newD = translatePath(current.text, deltaX, deltaY);
+          upsertElement({ ...current, x: newX, y: newY, text: newD });
+        } else if (current.type === "line" || current.type === "arrow") {
+          upsertElement({
+            ...current,
+            x: init.x + dx,
+            y: init.y + dy,
+            width: init.width + dx,
+            height: init.height + dy,
+            cx: init.cx + dx,
+            cy: init.cy + dy,
+          });
+        } else {
+          upsertElement({ ...current, x: init.x + dx, y: init.y + dy });
+        }
+      }
       return;
     }
 
@@ -626,6 +869,12 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
   }
 
   function onPointerUp(event: React.PointerEvent<SVGSVGElement>) {
+    pointersRef.current.delete(event.pointerId);
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    panRef.current = null;
+    if (pointersRef.current.size < 2) {
+      pinchRef.current = null;
+    }
     event.preventDefault();
     const p = point(event);
 
@@ -646,6 +895,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         stroke: penColor,
         strokeStyle: penStyle,
         text: d,
+        textAlign: "left",
         fromId: null,
         toId: null,
         cx: 0,
@@ -688,6 +938,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
             stroke: defaultStroke,
             strokeStyle: "solid",
             text: "",
+            textAlign: "left",
             fromId: null,
             toId: null,
             cx: (x + p.x) / 2,
@@ -698,8 +949,10 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         }
         setTool("select");
       } else {
-        const width = Math.max(type === "text" ? 200 : 80, p.x - x);
-        const height = Math.max(type === "text" ? 48 : 48, p.y - y);
+        const defaultText = type === "text" ? "Label" : type === "sticky" ? "Note" : "";
+        const measured = type === "text" ? measureText(defaultText) : null;
+        const width = measured ? Math.max(measured.width, p.x - x) : Math.max(type === "text" ? 200 : 80, p.x - x);
+        const height = measured ? Math.max(measured.height, p.y - y) : Math.max(48, p.y - y);
         const element: ShapeData = {
           id: crypto.randomUUID(),
           boardId,
@@ -712,7 +965,8 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
           fill: defaultFill(type),
           stroke: defaultStroke,
           strokeStyle: "solid",
-          text: type === "text" ? "Label" : type === "sticky" ? "Note" : "",
+          text: defaultText,
+          textAlign: "left",
           fromId: null,
           toId: null,
           cx: 0,
@@ -756,12 +1010,24 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
   }, [editing]);
 
+  useEffect(() => {
+    async function pollComments() {
+      try {
+        const data = await api<{ comments: CommentRecord[] }>(`/api/boards/${boardId}/comments`);
+        setComments(data.comments);
+      } catch {
+        // silent sync retry
+      }
+    }
+    void pollComments();
+    const timer = setInterval(() => {
+      void pollComments();
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [boardId]);
+
   async function openPanel(next: typeof panel) {
     setPanel(next);
-    if (next === "comments") {
-      const data = await api<{ comments: CommentRecord[] }>(`/api/boards/${boardId}/comments`);
-      setComments(data.comments);
-    }
     if (next === "share") {
       const data = await api<{ members: typeof members; invitations: InvitationRecord[] }>(
         `/api/boards/${boardId}/share`,
@@ -775,15 +1041,10 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
     }
   }
 
-  async function exportBoard() {
-    const data = await api<{ svg: string }>(`/api/boards/${boardId}/export`, { method: "POST" });
-    const blob = new Blob([data.svg], { type: "image/svg+xml" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${board?.title ?? "board"}.svg`;
-    link.click();
-    URL.revokeObjectURL(url);
+
+
+  function exportBoard() {
+    setExportModalOpen(true);
   }
 
   async function saveSnapshot(label: string) {
@@ -798,9 +1059,9 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
   }
 
   return (
-    <div className="flex h-screen flex-col bg-ash-canvas select-none">
-      <header className="flex items-center justify-between border-b border-warm-stone bg-paper-white px-4 py-2.5 dark:border-border dark:bg-card/80">
-        <div className="flex items-center gap-3">
+    <div className="relative flex h-screen w-full flex-col overflow-hidden bg-ash-canvas select-none">
+      <header className="pointer-events-none absolute left-0 right-0 top-3 z-30 flex items-center justify-between px-4">
+        <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-warm-stone bg-paper-white/95 p-1.5 shadow-[var(--shadow-stone)] backdrop-blur-sm dark:border-border/60 dark:bg-card/90 dark:shadow-[0_2px_12px_rgba(0,0,0,0.4)]">
           <Logo compact />
           <EditableBoardTitle
             title={board.title}
@@ -814,8 +1075,7 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
             }}
           />
         </div>
-        <div className="flex items-center gap-1.5">
-          <ThemeToggle />
+        <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-warm-stone bg-paper-white/95 p-1.5 shadow-[var(--shadow-stone)] backdrop-blur-sm dark:border-border/60 dark:bg-card/90 dark:shadow-[0_2px_12px_rgba(0,0,0,0.4)]">
           <div className="mr-1 flex -space-x-2">
             {others.map(({ connectionId, info }) => (
               <span
@@ -839,40 +1099,139 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
               </span>
             ))}
           </div>
-          <Button variant="ghost" className="px-2.5 py-2" title="Comments" aria-label="Comments" onClick={() => void openPanel("comments")}>
-            <MessageSquare className="h-4 w-4" strokeWidth={1.75} />
-          </Button>
-          <Button variant="ghost" className="gap-1.5 px-3 py-2" onClick={() => void openPanel("share")}>
-            <Share2 className="h-4 w-4" strokeWidth={1.75} />
-            <span className="hidden sm:inline">Share</span>
-          </Button>
-          <Button variant="ghost" className="px-2.5 py-2" title="History" aria-label="History" onClick={() => void openPanel("history")}>
-            <History className="h-4 w-4" strokeWidth={1.75} />
-          </Button>
-          <Button variant="ghost" className="gap-1.5 px-3 py-2" onClick={() => void exportBoard()}>
-            <Download className="h-4 w-4" strokeWidth={1.75} />
-            <span className="hidden sm:inline">Export</span>
-          </Button>
-          <Button href="/dashboard" variant="ghost" className="gap-1.5 px-3 py-2">
-            <LayoutDashboard className="h-4 w-4" strokeWidth={1.75} />
-            <span className="hidden sm:inline">Dashboard</span>
-          </Button>
+
+          <button
+            type="button"
+            title="Shapes"
+            aria-label="Shapes"
+            onClick={() => void openPanel("shapes")}
+            className="flex h-10 w-10 items-center justify-center rounded-md text-inkwell-navy transition hover:bg-ash-canvas dark:text-foreground outline-none focus:outline-none focus-visible:outline-none focus:ring-0 border-0 shadow-none"
+          >
+            <Shapes className="h-5 w-5" />
+          </button>
+          
+          <button
+            type="button"
+            title="AI Assistant"
+            aria-label="AI Assistant"
+            onClick={() => void openPanel("ai")}
+            className="flex h-10 w-10 items-center justify-center rounded-md text-inkwell-navy transition hover:bg-ash-canvas dark:text-foreground outline-none focus:outline-none focus-visible:outline-none focus:ring-0 border-0 shadow-none"
+          >
+            <Sparkles className="h-5 w-5" />
+          </button>
+
+          <button
+            type="button"
+            title="Share Board"
+            aria-label="Share Board"
+            onClick={() => void openPanel("share")}
+            className="flex h-10 w-10 items-center justify-center rounded-md text-inkwell-navy transition hover:bg-ash-canvas dark:text-foreground outline-none focus:outline-none focus-visible:outline-none focus:ring-0 border-0 shadow-none"
+          >
+            <Share2 className="h-5 w-5" />
+          </button>
+
+          <HamburgerMenu
+            onOpenHistory={() => void openPanel("history")}
+            onOpenExport={() => void exportBoard()}
+            onDeleteBoard={() => setDeleteModalOpen(true)}
+          />
         </div>
       </header>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div
+        ref={containerRef}
+        className="relative min-h-0 flex-1 overflow-hidden touch-none select-none"
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (!canEdit) return;
+
+          const files = e.dataTransfer.files;
+          if (!files || files.length === 0) return;
+
+          const rect = containerRef.current?.getBoundingClientRect();
+          const screenX = e.clientX - (rect?.left ?? 0);
+          const screenY = e.clientY - (rect?.top ?? 0);
+          const dropCanvasX = (screenX - viewport.x) / viewport.scale;
+          const dropCanvasY = (screenY - viewport.y) / viewport.scale;
+
+          for (const file of Array.from(files)) {
+            if (file.type.startsWith("image/")) {
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                const dataUrl = ev.target?.result as string;
+                if (!dataUrl) return;
+
+                const id = crypto.randomUUID();
+                const img = new window.Image();
+                img.onload = () => {
+                  const aspect = img.width / img.height || 4 / 3;
+                  const w = Math.min(400, Math.max(150, img.width));
+                  const h = w / aspect;
+
+                  upsertElement({
+                    id,
+                    boardId,
+                    type: "image",
+                    x: dropCanvasX - w / 2,
+                    y: dropCanvasY - h / 2,
+                    width: w,
+                    height: h,
+                    rotation: 0,
+                    fill: "#ffffff",
+                    stroke: "#151b31",
+                    strokeStyle: "solid",
+                    text: dataUrl,
+                    textAlign: "left",
+                    fromId: null,
+                    toId: null,
+                    cx: 0,
+                    cy: 0,
+                    zIndex: elementsArray.length + 1,
+                    updatedAt: Date.now(),
+                  });
+                  setSelectedId(id);
+                  setSelectedIds(new Set([id]));
+                };
+                img.src = dataUrl;
+              };
+              reader.readAsDataURL(file);
+            }
+          }
+        }}
+      >
         <svg
           ref={svgRef}
-          className="whiteboard-surface h-full w-full bg-[#fafafa] dark:bg-[#0a0a0a]"
+          className="whiteboard-surface h-full w-full bg-[#fafafa] dark:bg-[#0a0a0a] touch-none"
+          style={{
+            cursor: panRef.current ? "grabbing" : (isSpacePressed || tool === "hand") ? "grab" : "default",
+          }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onDoubleClick={onDoubleClick}
-          onContextMenu={(event) => event.preventDefault()}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (didPanRef.current) {
+              didPanRef.current = false;
+              return;
+            }
+            const p = point(e as unknown as React.PointerEvent<SVGSVGElement>);
+            setContextMenu({ x: e.clientX, y: e.clientY, canvasX: p.x, canvasY: p.y, targetId: null });
+          }}
         >
           <defs>
-            <pattern id="dot-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+            <pattern
+              id="dot-grid"
+              width="24"
+              height="24"
+              patternUnits="userSpaceOnUse"
+              patternTransform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.scale})`}
+            >
               <circle cx="1" cy="1" r="1" fill={theme === "dark" ? "#333333" : "#d1d5db"} />
             </pattern>
             <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="userSpaceOnUse">
@@ -882,14 +1241,90 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
           <rect width="100%" height="100%" fill="url(#dot-grid)" />
           <g transform={`translate(${viewport.x} ${viewport.y}) scale(${viewport.scale})`}>
             {elementsArray.map((element) => (
-              <Shape
+              <g
                 key={element.id}
-                element={element}
-                selected={selectedIds.has(element.id)}
-                others={elementsArray}
-                darkMode={theme === "dark"}
-              />
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setSelectedId(element.id);
+                  setSelectedIds(new Set([element.id]));
+                  const p = point(e as unknown as React.PointerEvent<SVGSVGElement>);
+                  setContextMenu({ x: e.clientX, y: e.clientY, canvasX: p.x, canvasY: p.y, targetId: element.id });
+                }}
+              >
+                <Shape
+                  element={element}
+                  selected={selectedIds.has(element.id)}
+                  others={elementsArray}
+                  darkMode={theme === "dark"}
+                />
+              </g>
             ))}
+
+            {/* Render Floating Comment Pins on Canvas */}
+            {comments
+              .filter((c) => !c.resolved && !c.parentId)
+              .map((c) => {
+                let pinX = c.x ?? 0;
+                let pinY = c.y ?? 0;
+                if (c.elementId) {
+                  const el = elementsArray.find((item) => item.id === c.elementId);
+                  if (el) {
+                    pinX = el.x + el.width - 12;
+                    pinY = el.y - 12;
+                  }
+                }
+                const isActive = activeCommentId === c.id;
+
+                return (
+                  <g
+                    key={`canvas-comment-pin-${c.id}`}
+                    transform={`translate(${pinX} ${pinY})`}
+                    className="cursor-pointer"
+                    onPointerDown={(e) => {
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveCommentId(isActive ? null : c.id);
+                    }}
+                  >
+                    <circle
+                      cx={0}
+                      cy={0}
+                      r={16}
+                      fill="#ffffff"
+                      stroke="#e2e8f0"
+                      strokeWidth={2}
+                      className="shadow-md transition hover:scale-110"
+                    />
+                    {c.authorAvatar ? (
+                      <image
+                        href={c.authorAvatar}
+                        x={-14}
+                        y={-14}
+                        width={28}
+                        height={28}
+                        clipPath="circle(14px at 14px 14px)"
+                      />
+                    ) : (
+                      <circle cx={0} cy={0} r={14} fill="#151b31" />
+                    )}
+                    {!c.authorAvatar && (
+                      <text
+                        x={0}
+                        y={4}
+                        textAnchor="middle"
+                        fontSize="10"
+                        fontWeight="bold"
+                        fill="#ffffff"
+                      >
+                        {c.authorName.slice(0, 2).toUpperCase()}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
             {preview?.kind === "path" ? (
               <path
                 d={preview.d}
@@ -940,7 +1375,12 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
             ) : null}
             {others.map(({ connectionId, presence, info }) =>
               presence.cursor ? (
-                <g key={connectionId} transform={`translate(${presence.cursor.x} ${presence.cursor.y})`} pointerEvents="none">
+                <g
+                  key={connectionId}
+                  transform={`translate(${presence.cursor.x} ${presence.cursor.y})`}
+                  style={{ transition: "transform 0.12s ease-out" }}
+                  pointerEvents="none"
+                >
                   <path d="M0 0 L0 16 L4 12 L8 20 L11 18 L7 11 L14 11 Z" fill={info.color} />
                   <text x="16" y="12" fontSize="11" fill={theme === "dark" ? "#e8eaf2" : "#151b31"}>
                     {info.name}
@@ -948,6 +1388,24 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
                 </g>
               ) : null,
             )}
+            {selectedIds.size > 1 && tool === "select" && Array.from(selectedIds).map((id) => {
+              const el = elementsArray.find((item) => item.id === id);
+              if (!el) return null;
+              return (
+                <rect
+                  key={`multi-${id}`}
+                  x={el.x - 2}
+                  y={el.y - 2}
+                  width={el.width + 4}
+                  height={el.height + 4}
+                  fill="none"
+                  stroke="#ff5858"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                  pointerEvents="none"
+                />
+              );
+            })}
             {selected && canEdit && tool === "select" && (() => {
               const sel = elementsArray.find((el) => el.id === selectedId);
               if (!sel) return null;
@@ -1017,50 +1475,326 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
           </g>
         </svg>
 
-        <ToolDock tool={tool} onTool={(t) => { if (editing) { const el = elementsArray.find((item) => item.id === editing.id); if (el) upsertElement({ ...el, text: editing.text }); setEditing(null); } setTool(t); }} canEdit={canEdit} />
+        {/* Floating Selection Toolbar on Canvas */}
+        {selectionBounds && canEdit && tool === "select" && (() => {
+          const cx = (selectionBounds.minX + selectionBounds.maxX) / 2;
+          const screenX = cx * viewport.scale + viewport.x;
+          const screenY = selectionBounds.minY * viewport.scale + viewport.y - 48;
 
-        {editing && (
-          <textarea
-            ref={textareaRef}
-            className="absolute z-30 overflow-hidden border-none bg-transparent p-3 text-sm text-inherit outline-none"
-            style={{
-              left: (editing.x - viewport.x) * viewport.scale,
-              top: (editing.y - viewport.y) * viewport.scale,
-              width: editing.width * viewport.scale,
-              height: editing.height * viewport.scale,
-              lineHeight: "18px",
-              fontFamily: "inherit",
-              resize: "none",
-              color: theme === "dark" ? "#e8eaf2" : "#151b31",
-            }}
-            value={editing.text}
-            onChange={(e) => {
-              setEditing((prev) => (prev ? { ...prev, text: e.target.value } : null));
-              const ta = textareaRef.current;
-              if (ta) {
-                ta.style.height = "auto";
-                ta.style.height = ta.scrollHeight + "px";
-              }
-            }}
-            onBlur={() => {
-              if (!editing) return;
+          return (
+            <div
+              className="absolute z-30 flex items-center gap-1.5 rounded-xl border border-warm-stone bg-paper-white/95 p-1.5 shadow-lg backdrop-blur-md dark:border-border dark:bg-card/95 animate-in fade-in zoom-in-95 duration-100 select-none"
+              style={{
+                left: `${Math.max(16, screenX)}px`,
+                top: `${Math.max(64, screenY)}px`,
+                transform: "translateX(-50%)",
+              }}
+            >
+              <button
+                type="button"
+                title="Delete selected (Backspace / Delete)"
+                aria-label="Delete selected shapes"
+                onClick={deleteSelectedElements}
+                className="flex items-center gap-1.5 rounded-lg bg-coral-emphasis/10 px-2.5 py-1.5 text-xs font-semibold text-coral-emphasis transition hover:bg-coral-emphasis hover:text-white"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Delete{selectedElements.length > 1 ? ` (${selectedElements.length})` : ""}</span>
+              </button>
+
+              <div className="h-4 w-px bg-warm-stone/60 dark:bg-border/60" />
+
+              <button
+                type="button"
+                title="Duplicate selected"
+                onClick={() => {
+                  selectedElements.forEach((el) => duplicateElement(el.id));
+                }}
+                className="rounded-lg p-1.5 text-inkwell-navy transition hover:bg-ash-canvas dark:text-foreground"
+              >
+                <Copy className="h-4 w-4" />
+              </button>
+
+              {selectedElements.length === 1 && selectedElements[0] && (
+                <>
+                  <button
+                    type="button"
+                    title="Bring to front"
+                    onClick={() => bringToFront(selectedElements[0]!.id)}
+                    className="rounded-lg p-1.5 text-slate transition hover:bg-ash-canvas dark:hover:text-foreground"
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Send to back"
+                    onClick={() => sendToBack(selectedElements[0]!.id)}
+                    className="rounded-lg p-1.5 text-slate transition hover:bg-ash-canvas dark:hover:text-foreground"
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Floating Active Comment Card Popover */}
+        {activeCommentId && (() => {
+          const activeComment = comments.find((c) => c.id === activeCommentId && !c.resolved);
+          if (!activeComment) return null;
+          let worldX = activeComment.x ?? 0;
+          let worldY = activeComment.y ?? 0;
+          if (activeComment.elementId) {
+            const el = elementsArray.find((item) => item.id === activeComment.elementId);
+            if (el) {
+              worldX = el.x + el.width - 12;
+              worldY = el.y - 12;
+            }
+          }
+          const screenX = worldX * viewport.scale + viewport.x + 20;
+          const screenY = worldY * viewport.scale + viewport.y - 10;
+
+          const threadReplies = comments.filter((r) => r.parentId === activeComment.id && !r.resolved);
+
+          return (
+            <div
+              className="absolute z-40 w-[300px] rounded-2xl border border-warm-stone bg-paper-white/95 p-3.5 shadow-xl backdrop-blur-md dark:border-border dark:bg-card animate-in fade-in zoom-in-95 duration-100 select-text"
+              style={{ left: Math.max(10, Math.min(window.innerWidth - 320, screenX)), top: Math.max(10, Math.min(window.innerHeight - 220, screenY)) }}
+            >
+              {/* Header toolbar with resolve & action icons */}
+              <div className="flex items-center justify-between border-b border-warm-stone/60 pb-2.5 dark:border-border/60">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    title="Mark Resolved"
+                    onClick={async () => {
+                      const data = await api<{ comments: CommentRecord[] }>(`/api/boards/${boardId}/comments`, {
+                        method: "POST",
+                        body: JSON.stringify({ resolveId: activeComment.id }),
+                      });
+                      setComments(data.comments);
+                      setActiveCommentId(null);
+                    }}
+                    className="flex items-center gap-1.5 rounded-full bg-ash-canvas px-2.5 py-1 text-[11px] font-semibold text-inkwell-navy transition hover:bg-warm-stone dark:bg-card dark:text-foreground"
+                  >
+                    <span className="h-2 w-2 rounded-full bg-slate" />
+                    Resolve
+                  </button>
+                </div>
+                <div className="flex items-center gap-1 text-slate">
+                  <span className="h-3 w-3 rounded-full bg-[#151b31] border border-white" />
+                  <span className="h-3 w-3 rounded-full bg-[#86e0c1]" />
+                  <span className="h-3 w-3 rounded-full bg-[#ff5858]" />
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-slate hover:text-foreground ml-2"
+                    onClick={() => setActiveCommentId(null)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              {/* Author header & content */}
+              <div className="pt-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Avatar className="h-6 w-6">
+                      {activeComment.authorAvatar ? (
+                        <img src={activeComment.authorAvatar} alt={activeComment.authorName} className="h-full w-full object-cover" />
+                      ) : (
+                        <AvatarFallback className="bg-inkwell-navy text-[9px] font-bold text-paper-white">
+                          {activeComment.authorName.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      )}
+                    </Avatar>
+                    <span className="text-[13px] font-semibold text-inkwell-navy dark:text-foreground">
+                      {activeComment.authorName}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate">{formatCommentTime(activeComment.createdAt)}</span>
+                </div>
+
+                <p className="mt-2 text-[13px] leading-relaxed text-inkwell-navy dark:text-foreground">
+                  {activeComment.content}
+                </p>
+              </div>
+
+              {/* Replies list */}
+              {threadReplies.length > 0 && (
+                <div className="mt-3 grid gap-2 border-t border-warm-stone/60 pt-2.5 dark:border-border/60">
+                  {threadReplies.map((reply) => (
+                    <div key={reply.id} className="grid gap-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11.5px] font-semibold text-inkwell-navy dark:text-foreground">{reply.authorName}</span>
+                        <span className="text-[9.5px] text-slate">{formatCommentTime(reply.createdAt)}</span>
+                      </div>
+                      <p className="text-[12px] text-inkwell-navy/90 dark:text-foreground/90">{reply.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Reply Input */}
+              <form
+                className="mt-3 flex items-center gap-2 rounded-xl border border-warm-stone bg-ash-canvas/40 px-2.5 py-1.5 dark:border-border dark:bg-card/50"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const input = (e.currentTarget.elements.namedItem("replyText") as HTMLInputElement).value;
+                  if (!input.trim()) return;
+                  const data = await api<{ comments: CommentRecord[] }>(`/api/boards/${boardId}/comments`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      content: input,
+                      elementId: activeComment.elementId,
+                      parentId: activeComment.id,
+                      x: activeComment.x,
+                      y: activeComment.y,
+                    }),
+                  });
+                  setComments(data.comments);
+                  e.currentTarget.reset();
+                }}
+              >
+                <input
+                  name="replyText"
+                  type="text"
+                  placeholder="Leave a reply. Use @ to mention."
+                  className="w-full bg-transparent text-[12px] outline-none placeholder:text-slate"
+                />
+                <button type="submit" title="Send Reply" className="text-slate hover:text-inkwell-navy dark:hover:text-foreground">
+                  <Send className="h-3.5 w-3.5" />
+                </button>
+              </form>
+            </div>
+          );
+        })()}
+
+        {/* Floating Draft Comment Input Box Popover */}
+        {commentDraft && (() => {
+          const screenX = commentDraft.x * viewport.scale + viewport.x + 15;
+          const screenY = commentDraft.y * viewport.scale + viewport.y - 10;
+          return (
+            <div
+              className="absolute z-40 w-[280px] rounded-2xl border border-warm-stone bg-paper-white/95 p-3 shadow-xl backdrop-blur-md dark:border-border dark:bg-card animate-in fade-in zoom-in-95 duration-100 select-text"
+              style={{ left: Math.max(10, Math.min(window.innerWidth - 300, screenX)), top: Math.max(10, Math.min(window.innerHeight - 150, screenY)) }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-slate uppercase tracking-wider">New Comment</span>
+                <button
+                  type="button"
+                  className="text-xs text-slate hover:text-foreground"
+                  onClick={() => setCommentDraft(null)}
+                >
+                  ✕
+                </button>
+              </div>
+              <form
+                className="flex flex-col gap-2"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const input = (e.currentTarget.elements.namedItem("commentContent") as HTMLInputElement).value;
+                  if (!input.trim()) return;
+                  const data = await api<{ comments: CommentRecord[] }>(`/api/boards/${boardId}/comments`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      content: input,
+                      elementId: commentDraft.elementId,
+                      x: commentDraft.x,
+                      y: commentDraft.y,
+                    }),
+                  });
+                  setComments(data.comments);
+                  setCommentDraft(null);
+                }}
+              >
+                <input
+                  name="commentContent"
+                  autoFocus
+                  type="text"
+                  placeholder="Write a comment..."
+                  className="w-full rounded-xl border border-warm-stone p-2 text-[13px] outline-none focus:ring-1 focus:ring-inkwell-navy dark:border-border dark:bg-card"
+                />
+                <div className="flex justify-end gap-1.5">
+                  <ShadButton type="button" variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setCommentDraft(null)}>
+                    Cancel
+                  </ShadButton>
+                  <ShadButton type="submit" size="sm" className="h-7 px-3 text-xs bg-inkwell-navy text-paper-white">
+                    Post
+                  </ShadButton>
+                </div>
+              </form>
+            </div>
+          );
+        })()}
+
+        <ToolDock
+          tool={tool}
+          onTool={(t) => {
+            if (editing) {
               const el = elementsArray.find((item) => item.id === editing.id);
               if (el) upsertElement({ ...el, text: editing.text });
               setEditing(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.stopPropagation();
+            }
+            setTool(t);
+          }}
+          canEdit={canEdit}
+        />
+
+        {editing && (() => {
+          const el = elementsArray.find((item) => item.id === editing.id);
+          const pretextLayout = computePretextLayout(editing.text, editing.width, editing.height);
+          const align = el?.textAlign ?? "left";
+          return (
+            <textarea
+              ref={textareaRef}
+              className="absolute z-30 overflow-hidden border-none bg-transparent p-2 outline-none shadow-none"
+              style={{
+                left: (editing.x + 8) * viewport.scale + viewport.x,
+                top: (editing.y + 8) * viewport.scale + viewport.y,
+                width: Math.max(10, editing.width - 16) * viewport.scale,
+                height: Math.max(10, editing.height - 16) * viewport.scale,
+                fontSize: `${pretextLayout.fontSize * viewport.scale}px`,
+                lineHeight: `${pretextLayout.lineHeight * viewport.scale}px`,
+                textAlign: align,
+                fontFamily: "Inter, system-ui, sans-serif",
+                resize: "none",
+                color: theme === "dark" ? "#e8eaf2" : "#151b31",
+                display: "flex",
+                alignItems: "center",
+              }}
+              value={editing.text}
+              onChange={(e) => {
+                const val = e.target.value;
+                setEditing((prev) => (prev ? { ...prev, text: val } : null));
+                if (el) upsertElement({ ...el, text: val });
+              }}
+              onBlur={() => {
+                if (!editing) return;
+                if (el) {
+                  if (el.type === "text") {
+                    const measured = measureText(editing.text);
+                    upsertElement({ ...el, text: editing.text, width: Math.max(el.width, measured.width), height: Math.max(el.height, measured.height) });
+                  } else {
+                    upsertElement({ ...el, text: editing.text });
+                  }
+                }
                 setEditing(null);
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                e.stopPropagation();
-                textareaRef.current?.blur();
-              }
-            }}
-          />
-        )}
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setEditing(null);
+                }
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  textareaRef.current?.blur();
+                }
+              }}
+            />
+          );
+        })()}
 
         {tool === "pen" && canEdit && (
           <Card className="absolute left-4 top-4 w-[200px] ring-1 ring-foreground/10 shadow-lg">
@@ -1095,65 +1829,194 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
         )}
 
         {selected && canEdit ? (
-          <Card className="absolute left-4 top-4 w-[280px] ring-1 ring-foreground/10 shadow-lg">
+          <Card className="absolute left-4 top-20 z-20 w-[280px] ring-1 ring-foreground/10 shadow-lg bg-paper-white/95 backdrop-blur-md dark:bg-card/95">
             <CardContent className="grid gap-3 pt-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate">Selected shape</p>
-              {!editing && (
-                <TextInput
-                  className="select-text"
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate">
+                  {selected.type.toUpperCase()} OPTIONS
+                </p>
+                <button
+                  type="button"
+                  className="text-xs text-slate hover:text-foreground"
+                  onClick={() => setSelectedId(null)}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Text content edit (for text, sticky, shapes) */}
+              {selected.type !== "path" && selected.type !== "line" && selected.type !== "arrow" && selected.type !== "connector" && selected.type !== "image" && !editing && (
+                <textarea
+                  className="select-text w-full rounded-lg border border-warm-stone bg-paper-white p-2 text-sm text-inkwell-navy shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inkwell-navy dark:border-border dark:bg-card dark:text-foreground"
+                  rows={2}
+                  placeholder="Enter text..."
                   value={selected.text}
-                  onChange={(event) => upsertElement({ ...selected, text: event.target.value })}
+                  onChange={(event) => {
+                    const newText = event.target.value;
+                    if (selected.type === "text") {
+                      const measured = measureText(newText);
+                      upsertElement({ ...selected, text: newText, width: Math.max(selected.width, measured.width), height: Math.max(selected.height, measured.height) });
+                    } else {
+                      upsertElement({ ...selected, text: newText });
+                    }
+                  }}
                 />
               )}
-              <div className="grid grid-cols-6 gap-1.5">
-                {FILL_PALETTE.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    className="h-7 w-7 rounded-lg border border-warm-stone transition hover:scale-105"
-                    style={{ background: color }}
-                    title={color}
-                    onClick={() => upsertElement({ ...selected, fill: color })}
-                  />
-                ))}
+
+              {/* Text alignment for text & sticky */}
+              {(selected.type === "text" || selected.type === "sticky" || selected.type === "rect" || selected.type === "ellipse" || selected.type === "diamond") && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-slate">Alignment</span>
+                  <div className="flex gap-1">
+                    {([
+                      { value: "left" as const, icon: AlignLeft, label: "Left" },
+                      { value: "center" as const, icon: AlignCenter, label: "Center" },
+                      { value: "right" as const, icon: AlignRight, label: "Right" },
+                    ]).map(({ value, icon: Icon, label }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        title={label}
+                        className={`flex h-7 w-7 items-center justify-center rounded border transition ${
+                          (selected.textAlign ?? "left") === value
+                            ? "border-inkwell-navy bg-inkwell-navy text-paper-white dark:bg-paper-white dark:text-inkwell-navy"
+                            : "border-warm-stone text-slate hover:bg-ash-canvas"
+                        }`}
+                        onClick={() => upsertElement({ ...selected, textAlign: value })}
+                      >
+                        <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Text Size for text, sticky & shapes */}
+              {(selected.type === "text" || selected.type === "sticky" || selected.type === "rect" || selected.type === "ellipse" || selected.type === "diamond") && (
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-slate">Text Size</span>
+                  <div className="flex gap-1 items-center">
+                    {[
+                      { label: "S", size: 12 },
+                      { label: "M", size: 16 },
+                      { label: "L", size: 20 },
+                      { label: "XL", size: 24 },
+                      { label: "2XL", size: 32 },
+                    ].map(({ label, size }) => (
+                      <button
+                        key={size}
+                        type="button"
+                        className={`h-7 px-2 text-[11px] font-semibold rounded border transition ${
+                          (selected.fontSize ?? (selected.type === "text" ? 16 : 14)) === size
+                            ? "border-inkwell-navy bg-inkwell-navy text-paper-white dark:bg-paper-white dark:text-inkwell-navy"
+                            : "border-warm-stone text-slate hover:bg-ash-canvas"
+                        }`}
+                        onClick={() => upsertElement({ ...selected, fontSize: size })}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Line style (solid / dashed / dotted) for paths & shapes */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-slate">Line Style</span>
+                <div className="flex gap-1.5">
+                  {(["solid", "dashed", "dotted"] as const).map((style) => (
+                    <button
+                      key={style}
+                      type="button"
+                      className={`flex-1 rounded border px-2 py-1 text-[10px] transition ${
+                        (selected.strokeStyle ?? "solid") === style
+                          ? "bg-inkwell-navy text-paper-white dark:bg-paper-white dark:text-inkwell-navy"
+                          : "border-warm-stone text-slate hover:bg-ash-canvas"
+                      }`}
+                      onClick={() => upsertElement({ ...selected, strokeStyle: style })}
+                    >
+                      {style.charAt(0).toUpperCase() + style.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              {/* Color choices for Stroke / Line */}
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-slate">Color Palette</span>
+                <div className="grid grid-cols-6 gap-1.5">
+                  {FILL_PALETTE.slice(0, 12).map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className="h-6 w-6 rounded-md border border-warm-stone transition hover:scale-105"
+                      style={{ background: color }}
+                      title={color}
+                      onClick={() => {
+                        if (selected.type === "path" || selected.type === "line" || selected.type === "arrow") {
+                          upsertElement({ ...selected, stroke: color });
+                        } else {
+                          upsertElement({ ...selected, fill: color });
+                        }
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
               <Button
                 className="w-full"
                 variant="danger"
-                onClick={() => {
-                  removeEl(selected.id);
-                  setSelectedId(null);
-                }}
+                onClick={deleteSelectedElements}
               >
-                Delete
+                {selectedElements.length > 1 ? `Delete ${selectedElements.length} Elements` : "Delete Element"}
               </Button>
             </CardContent>
           </Card>
         ) : null}
+
+        <ZoomControls
+          zoom={viewport.scale}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onResetZoom={handleResetZoom}
+          onFitCanvas={handleFitCanvas}
+        />
+
+        {contextMenu ? (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            targetId={contextMenu.targetId}
+            selectedCount={selectedElements.length}
+            onAddComment={(targetId) => {
+              if (contextMenu) {
+                setCommentDraft({
+                  x: contextMenu.canvasX,
+                  y: contextMenu.canvasY,
+                  elementId: targetId || null,
+                });
+              }
+            }}
+            onBringToFront={() => {
+              selectedElements.forEach((el) => bringToFront(el.id));
+            }}
+            onSendToBack={() => {
+              selectedElements.forEach((el) => sendToBack(el.id));
+            }}
+            onDuplicate={() => {
+              selectedElements.forEach((el) => duplicateElement(el.id));
+            }}
+            onDelete={deleteSelectedElements}
+            onClose={() => setContextMenu(null)}
+          />
+        ) : null}
+
+
       </div>
 
       {panel !== "none" ? (
         <BoardSidePanel panel={panel} onClose={() => setPanel("none")}>
-          {panel === "comments" ? (
-            <CommentsPane
-              comments={comments}
-              canComment={role !== "viewer"}
-              onAdd={async (content) => {
-                const data = await api<{ comments: CommentRecord[] }>(`/api/boards/${boardId}/comments`, {
-                  method: "POST",
-                  body: JSON.stringify({ content }),
-                });
-                setComments(data.comments);
-              }}
-              onResolve={async (id) => {
-                const data = await api<{ comments: CommentRecord[] }>(`/api/boards/${boardId}/comments`, {
-                  method: "POST",
-                  body: JSON.stringify({ resolveId: id }),
-                });
-                setComments(data.comments);
-              }}
-            />
-          ) : null}
           {panel === "share" ? (
             <SharePane
               members={members}
@@ -1166,6 +2029,13 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
                 );
                 setMembers(data.members);
                 setInvites(data.invitations);
+              }}
+              onUpdateRole={async (userId, newRole) => {
+                const data = await api<{ members: typeof members; invitations: InvitationRecord[] }>(
+                  `/api/boards/${boardId}/share`,
+                  { method: "POST", body: JSON.stringify({ updateUserId: userId, updateRole: newRole }) },
+                );
+                setMembers(data.members);
               }}
             />
           ) : null}
@@ -1184,215 +2054,108 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
               }}
             />
           ) : null}
+          {panel === "shapes" ? (
+            <ShapesPane
+              onSelectShape={(shape) => {
+                const def = getShapeDefinition(shape);
+                const cx = viewport.x + (window.innerWidth / 2) * viewport.scale;
+                const cy = viewport.y + (window.innerHeight / 2) * viewport.scale;
+                upsertElement({
+                  id: crypto.randomUUID(),
+                  boardId,
+                  type: def.type,
+                  shapeId: shape,
+                  x: cx - def.width / 2,
+                  y: cy - def.height / 2,
+                  width: def.width,
+                  height: def.height,
+                  rotation: 0,
+                  fill: "#ffffff",
+                  stroke: defaultStroke,
+                  strokeStyle: "solid",
+                  text: def.text || "",
+                  textAlign: def.textAlign || "center",
+                  fromId: null,
+                  toId: null,
+                  cx: 0,
+                  cy: 0,
+                  zIndex: elementsArray.length + 1,
+                  updatedAt: Date.now(),
+                });
+              }}
+            />
+          ) : null}
+          {panel === "ai" ? (
+            <AiChatPane
+              currentElements={elementsArray}
+              onGenerate={(newElements: DiagramElementRecord[]) => {
+                const idMap = new Map<string, string>();
+                newElements.forEach((el) => {
+                  idMap.set(el.id, crypto.randomUUID());
+                });
+                
+                const generatedIds = new Set<string>();
+                newElements.forEach((el) => {
+                  const mappedId = idMap.get(el.id)!;
+                  generatedIds.add(mappedId);
+                  
+                  const fromId = el.fromId && idMap.has(el.fromId) ? idMap.get(el.fromId)! : (el.fromId ?? null);
+                  const toId = el.toId && idMap.has(el.toId) ? idMap.get(el.toId)! : (el.toId ?? null);
+
+                  const toInsert: ShapeData = {
+                    ...el,
+                    id: mappedId,
+                    boardId,
+                    fromId,
+                    toId,
+                    strokeStyle: (el as unknown as ShapeData).strokeStyle ?? "solid",
+                    cx: (el as unknown as ShapeData).cx ?? 0,
+                    cy: (el as unknown as ShapeData).cy ?? 0,
+                  };
+                  
+                  addElement(toInsert);
+                });
+
+                setSelectedId(null);
+                setSelectedIds(generatedIds);
+              }}
+            />
+          ) : null}
         </BoardSidePanel>
       ) : null}
+
+      <ConfirmModal
+        isOpen={deleteModalOpen}
+        title="Permanently Delete Board?"
+        description="This action cannot be undone. All shapes, drawings, and notes inside this board will be erased forever."
+        confirmLabel="Delete Board"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => void confirmDeleteCurrentBoard()}
+        onCancel={() => setDeleteModalOpen(false)}
+      />
+
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        boardTitle={board.title}
+        elements={elementsArray}
+      />
     </div>
   );
 }
 
-function CommentsPane({
-  comments,
-  canComment,
-  onAdd,
-  onResolve,
-}: {
-  comments: CommentRecord[];
-  canComment: boolean;
-  onAdd: (content: string) => Promise<void>;
-  onResolve: (id: string) => Promise<void>;
-}) {
-  const [text, setText] = useState("");
-  return (
-    <div className="grid gap-4">
-      {comments.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-warm-stone bg-ash-canvas/50 px-4 py-6 text-center text-[13px] text-slate">
-          No comments yet. Start a thread below.
-        </p>
-      ) : (
-        comments.map((comment) => (
-          <Card
-            key={comment.id}
-            className={`ring-1 ring-foreground/8 ${comment.resolved ? "bg-mint-pulse/10" : "bg-card"}`}
-          >
-            <CardContent className="grid gap-2 pt-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Avatar size="sm">
-                    <AvatarFallback className="bg-inkwell-navy text-[10px] text-paper-white">
-                      {comment.authorName.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <p className="text-[13px] font-semibold">{comment.authorName}</p>
-                </div>
-                {comment.resolved ? <TagBadge tone="mint">Resolved</TagBadge> : null}
-              </div>
-              <p className="text-[14px] leading-relaxed text-inkwell-navy">{comment.content}</p>
-              {canComment && !comment.resolved ? (
-                <ShadButton
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-fit px-2 text-coral-emphasis hover:text-coral-emphasis"
-                  onClick={() => void onResolve(comment.id)}
-                >
-                  Mark resolved
-                </ShadButton>
-              ) : null}
-            </CardContent>
-          </Card>
-        ))
-      )}
-      {canComment ? (
-        <PanelSection title="Add comment">
-          <form
-            className="grid gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!text.trim()) return;
-              void onAdd(text);
-              setText("");
-            }}
-          >
-            <TextInput
-              className="select-text"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder="Leave a note for the team"
-            />
-            <ShadButton type="submit" className="w-full">
-              Post comment
-            </ShadButton>
-          </form>
-        </PanelSection>
-      ) : null}
-    </div>
-  );
+function formatCommentTime(createdAt: number): string {
+  const diffMs = Date.now() - createdAt;
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 60) return "Just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function SharePane({
-  members,
-  invites,
-  canManage,
-  onInvite,
-}: {
-  members: { name?: string; email?: string; role: string; userId: string }[];
-  invites: InvitationRecord[];
-  canManage: boolean;
-  onInvite: (email: string, role: BoardRole) => Promise<void>;
-}) {
-  const [email, setEmail] = useState("");
-  const pending = invites.filter((item) => item.status === "pending");
 
-  return (
-    <div className="grid gap-5">
-      <PanelSection title="People with access">
-        <ul className="grid gap-2">
-          {members.map((member) => (
-            <li key={member.userId}>
-              <Card className="ring-1 ring-foreground/8">
-                <CardContent className="flex items-center justify-between gap-3 py-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <Avatar size="sm">
-                      <AvatarFallback className="bg-mint-pulse/40 text-[10px] font-semibold text-inkwell-navy">
-                        {(member.name ?? member.email ?? "?").slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="truncate text-[14px] font-medium">{member.name ?? member.email}</span>
-                  </div>
-                  <RoleBadge role={member.role} />
-                </CardContent>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      </PanelSection>
 
-      {pending.length > 0 ? (
-        <PanelSection title="Pending invites">
-          <ul className="grid gap-2">
-            {pending.map((invite) => (
-              <li
-                key={invite.id}
-                className="flex items-center justify-between rounded-xl border border-dashed border-warm-stone bg-ash-canvas/60 px-3 py-2.5 text-[13px]"
-              >
-                <span className="truncate text-inkwell-navy">{invite.email}</span>
-                <TagBadge tone="butter">{invite.role}</TagBadge>
-              </li>
-            ))}
-          </ul>
-        </PanelSection>
-      ) : null}
-
-      {canManage ? (
-        <PanelSection title="Invite collaborator">
-          <form
-            className="grid gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void onInvite(email, "editor");
-              setEmail("");
-            }}
-          >
-            <Input
-              className="select-text h-10 rounded-lg"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="colleague@school.edu"
-              required
-            />
-            <ShadButton type="submit" className="w-full">
-              Invite as editor
-            </ShadButton>
-          </form>
-        </PanelSection>
-      ) : null}
-    </div>
-  );
-}
-
-function HistoryPane({
-  versions,
-  canRestore,
-  onSave,
-  onRestore,
-}: {
-  versions: VersionRecord[];
-  canRestore: boolean;
-  onSave: () => Promise<void>;
-  onRestore: (id: string) => Promise<void>;
-}) {
-  return (
-    <div className="grid gap-4">
-      <ShadButton onClick={() => void onSave()} className="w-full">
-        Save snapshot
-      </ShadButton>
-      {versions.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-warm-stone bg-ash-canvas/50 px-4 py-6 text-center text-[13px] text-slate">
-          No snapshots yet. Save one to capture this moment.
-        </p>
-      ) : (
-        versions.map((version) => (
-          <Card key={version.id} className="ring-1 ring-foreground/8">
-            <CardContent className="grid gap-2 py-4">
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-[14px] font-semibold">{version.label}</p>
-                <TagBadge tone="outline">Snapshot</TagBadge>
-              </div>
-              <p className="text-[12px] text-slate">{new Date(version.createdAt).toLocaleString()}</p>
-              {canRestore ? (
-                <ShadButton
-                  variant="outline"
-                  size="sm"
-                  className="mt-1 w-fit"
-                  onClick={() => void onRestore(version.id)}
-                >
-                  Restore version
-                </ShadButton>
-              ) : null}
-            </CardContent>
-          </Card>
-        ))
-      )}
-    </div>
-  );
-}
+import { SharePane, HistoryPane, ShapesPane, AiChatPane } from "@/board/diagram/SidePanels";

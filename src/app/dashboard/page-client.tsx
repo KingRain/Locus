@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
-import { Archive, ChevronRight, FolderOpen, Plus, Search, Share2, Clock } from "lucide-react";
+import { Archive, ChevronRight, FolderOpen, Plus, Search, Share2, Clock, Pencil, Trash2, Check, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { Banner, Logo } from "@/components/brand";
 import { AuthControls } from "@/components/auth-controls";
@@ -15,6 +15,7 @@ import { TemplateTag } from "@/components/tag-badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { readRecentBoards, type RecentBoard } from "@/lib/recent-boards";
 import type { BoardRecord, TemplateKind, TemplateRecord } from "@/lib/types";
 
@@ -85,10 +86,30 @@ export function DashboardView() {
     }
   }
 
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
   async function archive(id: string) {
     await api(`/api/boards/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ status: archived ? "active" : "archived" }),
+    });
+    await load(archived ? "archived" : "active");
+  }
+
+  async function renameBoard(id: string, newTitle: string) {
+    await api(`/api/boards/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title: newTitle }),
+    });
+    await load(archived ? "archived" : "active");
+  }
+
+  async function confirmDeleteBoard() {
+    if (!deleteTargetId) return;
+    const id = deleteTargetId;
+    setDeleteTargetId(null);
+    await api(`/api/boards/${id}`, {
+      method: "DELETE",
     });
     await load(archived ? "archived" : "active");
   }
@@ -190,26 +211,15 @@ export function DashboardView() {
                   </li>
                 ) : (
                   filtered.map((board) => (
-                    <li key={board.id}>
-                      <Card className="group ring-1 ring-foreground/6 transition hover:-translate-y-0.5 hover:ring-foreground/12 hover:shadow-md">
-                        <CardContent className="flex items-center justify-between gap-2 py-3">
-                          <button
-                            className="min-w-0 flex-1 text-left"
-                            onClick={() => router.push(`/board/${board.id}`)}
-                          >
-                            <p className="truncate text-[15px] font-medium">{board.title}</p>
-                            <p className="text-[11px] text-slate">Click to open</p>
-                          </button>
-                          <button
-                            type="button"
-                            className="shrink-0 text-[11px] font-medium text-slate transition hover:text-coral-emphasis"
-                            onClick={() => void archive(board.id)}
-                          >
-                            {archived ? "Restore" : "Archive"}
-                          </button>
-                        </CardContent>
-                      </Card>
-                    </li>
+                    <BoardCardItem
+                      key={board.id}
+                      board={board}
+                      archived={archived}
+                      onOpen={() => router.push(`/board/${board.id}`)}
+                      onArchive={() => void archive(board.id)}
+                      onRename={(newTitle) => void renameBoard(board.id, newTitle)}
+                      onDelete={() => setDeleteTargetId(board.id)}
+                    />
                   ))
                 )}
               </ul>
@@ -336,6 +346,123 @@ export function DashboardView() {
           </StaggerGrid>
         </section>
       </main>
+
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetId)}
+        title="Permanently Delete Board?"
+        description="This action cannot be undone. All shapes, drawings, and notes inside this board will be erased forever."
+        confirmLabel="Delete Board"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => void confirmDeleteBoard()}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }
+
+function BoardCardItem({
+  board,
+  archived,
+  onOpen,
+  onArchive,
+  onRename,
+  onDelete,
+}: {
+  board: BoardRecord;
+  archived: boolean;
+  onOpen: () => void;
+  onArchive: () => void;
+  onRename: (title: string) => void;
+  onDelete: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(board.title);
+
+  function handleSave() {
+    const next = title.trim();
+    if (next && next !== board.title) {
+      onRename(next);
+    }
+    setEditing(false);
+  }
+
+  return (
+    <li>
+      <Card className="group ring-1 ring-foreground/6 transition hover:-translate-y-0.5 hover:ring-foreground/12 hover:shadow-md">
+        <CardContent className="flex items-center justify-between gap-2 py-3">
+          {editing ? (
+            <div className="flex flex-1 items-center gap-1.5">
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSave();
+                  if (e.key === "Escape") {
+                    setTitle(board.title);
+                    setEditing(false);
+                  }
+                }}
+                className="h-8 text-[14px]"
+                autoFocus
+              />
+              <button
+                type="button"
+                className="p-1 text-mint-pulse hover:text-inkwell-navy"
+                onClick={handleSave}
+                title="Save title"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="p-1 text-slate hover:text-inkwell-navy"
+                onClick={() => {
+                  setTitle(board.title);
+                  setEditing(false);
+                }}
+                title="Cancel"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button className="min-w-0 flex-1 text-left" onClick={onOpen}>
+              <p className="truncate text-[15px] font-medium">{board.title}</p>
+              <p className="text-[11px] text-slate">Click to open</p>
+            </button>
+          )}
+
+          {!editing && (
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                className="p-1 text-slate hover:text-inkwell-navy transition"
+                onClick={() => setEditing(true)}
+                title="Rename board"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                className="px-1.5 py-0.5 text-[11px] font-medium text-slate transition hover:text-coral-emphasis"
+                onClick={onArchive}
+              >
+                {archived ? "Restore" : "Archive"}
+              </button>
+              <button
+                type="button"
+                className="p-1 text-slate hover:text-red-500 transition"
+                onClick={onDelete}
+                title="Permanently delete board"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </li>
+  );
+}
+

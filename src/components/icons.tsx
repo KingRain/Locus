@@ -1,5 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   ArrowRight,
   Circle,
   Diamond,
@@ -29,8 +32,11 @@ import {
 } from "lucide-react";
 import type { TemplateKind, Tool } from "@/lib/types";
 
+import { Image as ImageIcon, Layers, Hand } from "lucide-react";
+
 export const TOOL_ICONS: Record<Tool, LucideIcon> = {
   select: MousePointer2,
+  hand: Hand,
   pen: Pencil,
   rect: Square,
   ellipse: Circle,
@@ -41,6 +47,8 @@ export const TOOL_ICONS: Record<Tool, LucideIcon> = {
   connector: PenLine,
   sticky: StickyNote,
   eraser: Eraser,
+  image: ImageIcon,
+  group: Layers,
 };
 
 export const TEMPLATE_ICONS: Record<TemplateKind, LucideIcon> = {
@@ -51,6 +59,9 @@ export const TEMPLATE_ICONS: Record<TemplateKind, LucideIcon> = {
 };
 
 export {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   ArrowRight,
   Circle,
   Download,
