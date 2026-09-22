@@ -1,9 +1,34 @@
 "use client";
 
 import type { ShapeData } from "../../../liveblocks.config";
-import { center, shapeEdgePoint } from "@/board/diagram/canvas-utils";
+import {
+  center,
+  shapeEdgePoint,
+  invertStrokeForDark,
+  invertFillForDark,
+  getTextColorForFill,
+} from "@/board/diagram/canvas-utils";
 import { computePretextLayout } from "@/board/diagram/pretext-text";
 import { getShapeDefinition } from "@/board/diagram/shapes/shape-library";
+
+const NO_BODY_FILL_SHAPES = new Set([
+  "Actor",
+  "Start",
+  "Fork/Join",
+  "Destruction",
+  "Return",
+  "Found Message 1",
+  "Found Message (variant)",
+  "Association 1",
+  "Relation 1",
+  "Relation 2",
+  "Aggregation 1",
+  "Composition 1",
+  "Dependency",
+  "Generalization",
+  "Implementation",
+  "Required Interface",
+]);
 
 export function Shape({
   element,
@@ -16,13 +41,12 @@ export function Shape({
   others: ShapeData[];
   darkMode: boolean;
 }) {
-  const textColor = element.fill === "#151b31" ? "#ffffff" : darkMode ? "#e8eaf2" : "#151b31";
-  let stroke = selected ? "#ff5858" : element.stroke;
-  if (darkMode && stroke === "#151b31") {
-    stroke = "#e8eaf2";
-  }
+  const effectiveStroke = selected ? "#ff5858" : invertStrokeForDark(element.stroke, darkMode);
+  const effectiveFill = invertFillForDark(element.fill, darkMode);
+  const textColor = getTextColorForFill(effectiveFill, darkMode);
+  const stroke = effectiveStroke;
   const strokeDasharray = element.strokeStyle === "dashed" ? "8 4" : element.strokeStyle === "dotted" ? "2 4" : undefined;
-  const common = { fill: element.fill, stroke, strokeWidth: selected ? 3 : 2 };
+  const common = { fill: effectiveFill, stroke, strokeWidth: selected ? 3 : 2 };
   const align = element.textAlign ?? "left";
 
   if (element.type === "image") {
@@ -214,6 +238,18 @@ export function Shape({
 
   if (element.type === "text") {
     const fontSize = element.fontSize ?? 16;
+    const rawTextColor =
+      element.stroke && element.stroke !== "none" && element.stroke !== "#ffffff"
+        ? element.stroke
+        : element.fill && element.fill !== "#ffffff" && element.fill !== "none"
+        ? element.fill
+        : null;
+    const textElementColor = rawTextColor
+      ? invertStrokeForDark(rawTextColor, darkMode)
+      : darkMode
+      ? "#e8eaf2"
+      : "#151b31";
+
     return (
       <foreignObject
         x={element.x}
@@ -228,7 +264,7 @@ export function Shape({
             height: "100%",
             fontSize: `${fontSize}px`,
             lineHeight: 1.3,
-            color: textColor,
+            color: textElementColor,
             textAlign: align,
             wordBreak: "break-word",
             whiteSpace: "pre-wrap",
@@ -243,7 +279,20 @@ export function Shape({
 
   if (element.type === "svg") {
     const def = element.shapeId ? getShapeDefinition(element.shapeId) : null;
-    const markup = def?.svgMarkup || "";
+    const rawMarkup = def?.svgMarkup || "";
+    const resolvedFill =
+      effectiveFill && effectiveFill !== "transparent" && effectiveFill !== "none"
+        ? effectiveFill
+        : "none";
+    let markup = rawMarkup;
+    const skipBodyFill = element.shapeId && NO_BODY_FILL_SHAPES.has(element.shapeId);
+    if (resolvedFill !== "none" && !skipBodyFill) {
+      if (element.shapeId === "Package") {
+        markup = rawMarkup.replace(/fill="none"/g, `fill="${resolvedFill}"`);
+      } else {
+        markup = rawMarkup.replace('fill="none"', `fill="${resolvedFill}"`);
+      }
+    }
     const pretextLayout = computePretextLayout(element.text, element.width, element.height, { targetFontSize: element.fontSize });
     const fontSize = element.fontSize ?? pretextLayout.fontSize;
     

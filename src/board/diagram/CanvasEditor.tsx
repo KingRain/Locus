@@ -1105,7 +1105,11 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
             title="Shapes"
             aria-label="Shapes"
             onClick={() => void openPanel("shapes")}
-            className="flex h-10 w-10 items-center justify-center rounded-md text-inkwell-navy transition hover:bg-ash-canvas dark:text-foreground outline-none focus:outline-none focus-visible:outline-none focus:ring-0 border-0 shadow-none"
+            className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-150 outline-none border-0 shadow-none ${
+              panel === "shapes"
+                ? "bg-[#fef08a]/80 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-[#713f12]/60 dark:text-[#fef08a] dark:ring-[#a16207]"
+                : "text-inkwell-navy hover:bg-[#fef08a]/30 hover:text-[#713f12] dark:text-foreground dark:hover:bg-[#713f12]/30 dark:hover:text-[#fef08a]"
+            }`}
           >
             <Shapes className="h-5 w-5" />
           </button>
@@ -1115,7 +1119,11 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
             title="AI Assistant"
             aria-label="AI Assistant"
             onClick={() => void openPanel("ai")}
-            className="flex h-10 w-10 items-center justify-center rounded-md text-inkwell-navy transition hover:bg-ash-canvas dark:text-foreground outline-none focus:outline-none focus-visible:outline-none focus:ring-0 border-0 shadow-none"
+            className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-150 outline-none border-0 shadow-none ${
+              panel === "ai"
+                ? "bg-[#fef08a]/80 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-[#713f12]/60 dark:text-[#fef08a] dark:ring-[#a16207]"
+                : "text-inkwell-navy hover:bg-[#fef08a]/30 hover:text-[#713f12] dark:text-foreground dark:hover:bg-[#713f12]/30 dark:hover:text-[#fef08a]"
+            }`}
           >
             <Sparkles className="h-5 w-5" />
           </button>
@@ -1125,7 +1133,11 @@ export function BoardWorkspace({ boardId }: { boardId: string }) {
             title="Share Board"
             aria-label="Share Board"
             onClick={() => void openPanel("share")}
-            className="flex h-10 w-10 items-center justify-center rounded-md text-inkwell-navy transition hover:bg-ash-canvas dark:text-foreground outline-none focus:outline-none focus-visible:outline-none focus:ring-0 border-0 shadow-none"
+            className={`flex h-10 w-10 items-center justify-center rounded-xl transition-all duration-150 outline-none border-0 shadow-none ${
+              panel === "share"
+                ? "bg-[#fef08a]/80 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-[#713f12]/60 dark:text-[#fef08a] dark:ring-[#a16207]"
+                : "text-inkwell-navy hover:bg-[#fef08a]/30 hover:text-[#713f12] dark:text-foreground dark:hover:bg-[#713f12]/30 dark:hover:text-[#fef08a]"
+            }`}
           >
             <Share2 className="h-5 w-5" />
           </button>

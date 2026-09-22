@@ -1,5 +1,29 @@
 import { getShapeDefinition } from "@/board/diagram/shapes/shape-library";
 import type { ShapeData } from "../../../liveblocks.config";
+import {
+  invertStrokeForDark,
+  invertFillForDark,
+  getTextColorForFill,
+} from "@/board/diagram/canvas-utils";
+
+const NO_BODY_FILL_SHAPES = new Set([
+  "Actor",
+  "Start",
+  "Fork/Join",
+  "Destruction",
+  "Return",
+  "Found Message 1",
+  "Found Message (variant)",
+  "Association 1",
+  "Relation 1",
+  "Relation 2",
+  "Aggregation 1",
+  "Composition 1",
+  "Dependency",
+  "Generalization",
+  "Implementation",
+  "Required Interface",
+]);
 
 function escapeXml(value: string): string {
   return value
@@ -124,7 +148,9 @@ export function computeBoardBounds(elements: ShapeData[], padding = 60) {
   return { minX, minY, maxX, maxY, width, height, padding };
 }
 
-function renderElementSvg(element: ShapeData, allElements: ShapeData[]): string {
+function renderElementSvg(element: ShapeData, allElements: ShapeData[], darkMode = false): string {
+  const strokeColor = invertStrokeForDark(element.stroke, darkMode);
+  const fillColor = invertFillForDark(element.fill, darkMode);
   const strokeDash =
     element.strokeStyle === "dashed"
       ? ' stroke-dasharray="8,4"'
@@ -132,10 +158,10 @@ function renderElementSvg(element: ShapeData, allElements: ShapeData[]): string 
       ? ' stroke-dasharray="2,4"'
       : "";
 
-  const commonProps = `fill="${element.fill}" stroke="${element.stroke}" stroke-width="2"${strokeDash}`;
+  const commonProps = `fill="${fillColor}" stroke="${strokeColor}" stroke-width="2"${strokeDash}`;
   const align = element.textAlign ?? "left";
   const fontSize = element.fontSize ?? (element.type === "text" ? 16 : 14);
-  const textColor = element.fill === "#151b31" ? "#ffffff" : "#151b31";
+  const textColor = getTextColorForFill(fillColor, darkMode);
 
   // Helper for foreignObject multiline text
   const renderTextContent = (x: number, y: number, width: number, height: number) => {
@@ -155,17 +181,17 @@ function renderElementSvg(element: ShapeData, allElements: ShapeData[]): string 
   }
 
   if (element.type === "path") {
-    return `<path id="${element.id}" d="${escapeXml(element.text)}" fill="none" stroke="${element.stroke}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"${strokeDash} />`;
+    return `<path id="${element.id}" d="${escapeXml(element.text)}" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"${strokeDash} />`;
   }
 
   if (element.type === "line" || element.type === "arrow") {
     const hasCurve = (element.cx ?? 0) !== 0 || (element.cy ?? 0) !== 0;
-    const marker = element.type === "arrow" ? ` marker-end="url(#arrow-${element.stroke.replace("#", "")})"` : "";
+    const marker = element.type === "arrow" ? ` marker-end="url(#arrow-${strokeColor.replace("#", "")})"` : "";
     if (hasCurve) {
       const d = `M ${element.x} ${element.y} Q ${element.cx} ${element.cy} ${element.width} ${element.height}`;
-      return `<path id="${element.id}" d="${d}" fill="none" stroke="${element.stroke}" stroke-width="2" stroke-linecap="round"${strokeDash}${marker} />`;
+      return `<path id="${element.id}" d="${d}" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round"${strokeDash}${marker} />`;
     }
-    return `<line id="${element.id}" x1="${element.x}" y1="${element.y}" x2="${element.width}" y2="${element.height}" stroke="${element.stroke}" stroke-width="2" stroke-linecap="round"${strokeDash}${marker} />`;
+    return `<line id="${element.id}" x1="${element.x}" y1="${element.y}" x2="${element.width}" y2="${element.height}" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round"${strokeDash}${marker} />`;
   }
 
   if (element.type === "connector") {
@@ -176,13 +202,13 @@ function renderElementSvg(element: ShapeData, allElements: ShapeData[]): string 
     const toCenter = getCenter(to);
     const start = getShapeEdgePoint(toCenter, from);
     const end = getShapeEdgePoint(fromCenter, to);
-    const marker = ` marker-end="url(#arrow-${element.stroke.replace("#", "")})"`;
+    const marker = ` marker-end="url(#arrow-${strokeColor.replace("#", "")})"`;
     const labelText = element.text
       ? `<text x="${(start.x + end.x) / 2}" y="${(start.y + end.y) / 2 - 8}" text-anchor="middle" font-family="Inter, sans-serif" font-size="12" fill="${textColor}">${escapeXml(element.text)}</text>`
       : "";
 
     return `<g id="${element.id}">
-      <line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="${element.stroke}" stroke-width="2"${strokeDash}${marker} />
+      <line x1="${start.x}" y1="${start.y}" x2="${end.x}" y2="${end.y}" stroke="${strokeColor}" stroke-width="2"${strokeDash}${marker} />
       ${labelText}
     </g>`;
   }
@@ -205,16 +231,31 @@ function renderElementSvg(element: ShapeData, allElements: ShapeData[]): string 
   }
 
   if (element.type === "text") {
+    const textElementColor = invertStrokeForDark(element.stroke || "#151b31", darkMode);
     return `<g id="${element.id}">
-      ${renderTextContent(element.x, element.y, Math.max(20, element.width), Math.max(20, element.height))}
+      <foreignObject x="${element.x}" y="${element.y}" width="${Math.max(20, element.width)}" height="${Math.max(20, element.height)}" style="overflow: visible;">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="width: 100%; height: 100%; font-size: ${fontSize}px; line-height: 1.3; color: ${textElementColor}; text-align: ${align}; word-break: break-word; white-space: pre-wrap; font-family: Inter, system-ui, -apple-system, sans-serif;">
+          ${escapeXml(element.text)}
+        </div>
+      </foreignObject>
     </g>`;
   }
 
   if (element.type === "svg") {
     const def = element.shapeId ? getShapeDefinition(element.shapeId) : null;
-    const markup = def?.svgMarkup || "";
-    // Transform color inside markup to match stroke
-    const coloredMarkup = markup.replaceAll('stroke="currentColor"', `stroke="${element.stroke}"`).replaceAll('fill="currentColor"', `fill="${element.fill}"`);
+    const rawMarkup = def?.svgMarkup || "";
+    let markup = rawMarkup;
+    const skipBodyFill = element.shapeId && NO_BODY_FILL_SHAPES.has(element.shapeId);
+    if (fillColor && fillColor !== "transparent" && fillColor !== "none" && !skipBodyFill) {
+      if (element.shapeId === "Package") {
+        markup = rawMarkup.replace(/fill="none"/g, `fill="${fillColor}"`);
+      } else {
+        markup = rawMarkup.replace('fill="none"', `fill="${fillColor}"`);
+      }
+    }
+    const coloredMarkup = markup
+      .replaceAll('stroke="currentColor"', `stroke="${strokeColor}"`)
+      .replaceAll('fill="currentColor"', `fill="${strokeColor}"`);
     return `<g id="${element.id}">
       <g transform="translate(${element.x}, ${element.y}) scale(${element.width / 100}, ${element.height / 100})">
         ${coloredMarkup}
@@ -244,9 +285,11 @@ export function generateBoardSvg(
 
   // Extract unique stroke colors for arrow markers
   const uniqueStrokes = Array.from(
-    new Set(sorted.map((el) => el.stroke).filter(Boolean)),
+    new Set(sorted.map((el) => invertStrokeForDark(el.stroke, darkMode)).filter(Boolean)),
   );
-  if (!uniqueStrokes.includes("#151b31")) uniqueStrokes.push("#151b31");
+  if (!uniqueStrokes.includes(darkMode ? "#e8eaf2" : "#151b31")) {
+    uniqueStrokes.push(darkMode ? "#e8eaf2" : "#151b31");
+  }
 
   const arrowMarkers = uniqueStrokes
     .map((stroke) => {
@@ -257,9 +300,9 @@ export function generateBoardSvg(
     })
     .join("\n");
 
-  const elementsSvg = sorted.map((el) => renderElementSvg(el, sorted)).join("\n");
-  const bgColor = darkMode ? "#0f172a" : "#f8fafc";
-  const titleColor = darkMode ? "#f8fafc" : "#0f172a";
+  const elementsSvg = sorted.map((el) => renderElementSvg(el, sorted, darkMode)).join("\n");
+  const bgColor = darkMode ? "#0a0a0a" : "#f8fafc";
+  const titleColor = darkMode ? "#e8eaf2" : "#151b31";
 
   const titleHeader = showTitle
     ? `<text x="${bounds.minX + 24}" y="${bounds.minY + 36}" font-family="Inter, system-ui, sans-serif" font-size="20" font-weight="600" fill="${titleColor}">${escapeXml(boardTitle)}</text>`

@@ -55,8 +55,8 @@ export function SharePane({
                 type="button"
                 className={`flex-1 rounded py-1 text-[11px] font-semibold transition ${
                   inviteRole === "editor"
-                    ? "bg-inkwell-navy text-paper-white dark:bg-paper-white dark:text-inkwell-navy shadow-sm"
-                    : "text-slate hover:text-foreground"
+                    ? "bg-[#fef08a]/90 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-[#713f12]/70 dark:text-[#fef08a] dark:ring-[#a16207]"
+                    : "text-slate hover:text-foreground hover:bg-[#fef08a]/20"
                 }`}
                 onClick={() => setInviteRole("editor")}
               >
@@ -66,8 +66,8 @@ export function SharePane({
                 type="button"
                 className={`flex-1 rounded py-1 text-[11px] font-semibold transition ${
                   inviteRole === "viewer"
-                    ? "bg-inkwell-navy text-paper-white dark:bg-paper-white dark:text-inkwell-navy shadow-sm"
-                    : "text-slate hover:text-foreground"
+                    ? "bg-[#fef08a]/90 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-[#713f12]/70 dark:text-[#fef08a] dark:ring-[#a16207]"
+                    : "text-slate hover:text-foreground hover:bg-[#fef08a]/20"
                 }`}
                 onClick={() => setInviteRole("viewer")}
               >
@@ -75,7 +75,7 @@ export function SharePane({
               </button>
             </div>
 
-            <ShadButton type="submit" size="sm" className="h-8 w-full rounded-md bg-inkwell-navy text-xs font-semibold text-paper-white hover:bg-inkwell-navy/90">
+            <ShadButton type="submit" size="sm" className="h-8 w-full rounded-md bg-inkwell-navy text-xs font-semibold text-paper-white hover:bg-[#713f12] dark:hover:bg-[#fef08a] dark:hover:text-[#713f12] transition-colors">
               Send Invite ({inviteRole === "editor" ? "Editor" : "Viewer"})
             </ShadButton>
           </form>
@@ -86,7 +86,7 @@ export function SharePane({
         <ul className="grid gap-1.5">
           {members.map((member) => (
             <li key={member.userId}>
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-warm-stone/60 bg-paper-white px-3 py-2 dark:border-border/60 dark:bg-card">
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-warm-stone/60 bg-paper-white px-3 py-2 dark:border-border/60 dark:bg-card hover:border-[#fde047]/50 transition-colors">
                 <div className="flex min-w-0 flex-1 items-center gap-2.5">
                   <Avatar className="h-7 w-7 shrink-0 ring-1 ring-warm-stone/60">
                     {member.avatar ? (
@@ -108,7 +108,7 @@ export function SharePane({
                 </div>
                 {canManage && member.role !== "owner" && onUpdateRole ? (
                   <select
-                    className="h-6 rounded-md border border-warm-stone bg-paper-white px-1.5 text-[11px] font-semibold tracking-wide uppercase text-slate outline-none hover:bg-ash-canvas focus:ring-1 focus:ring-inkwell-navy dark:border-border dark:bg-card dark:text-foreground"
+                    className="h-6 rounded-md border border-warm-stone bg-paper-white px-1.5 text-[11px] font-semibold tracking-wide uppercase text-slate outline-none hover:bg-[#fef08a]/20 focus:ring-1 focus:ring-[#fde047] dark:border-border dark:bg-card dark:text-foreground"
                     value={member.role}
                     onChange={(e) => void onUpdateRole(member.userId, e.target.value as BoardRole)}
                   >
@@ -163,7 +163,7 @@ export function HistoryPane({
 }) {
   return (
     <div className="grid gap-4">
-      <ShadButton onClick={() => void onSave()} className="w-full rounded-lg bg-inkwell-navy text-paper-white hover:bg-inkwell-navy/90">
+      <ShadButton onClick={() => void onSave()} className="w-full rounded-lg bg-inkwell-navy text-paper-white hover:bg-[#713f12] dark:hover:bg-[#fef08a] dark:hover:text-[#713f12] transition-colors">
         Save snapshot
       </ShadButton>
       {versions.length === 0 ? (
@@ -172,18 +172,18 @@ export function HistoryPane({
         </p>
       ) : (
         versions.map((version) => (
-          <Card key={version.id} className="rounded-lg border border-warm-stone shadow-sm">
+          <Card key={version.id} className="rounded-lg border border-warm-stone shadow-sm hover:border-[#fde047]/60 transition-colors">
             <CardContent className="grid gap-2 py-4">
               <div className="flex items-start justify-between gap-2">
                 <p className="text-[14px] font-semibold">{version.label}</p>
-                <TagBadge tone="outline">Snapshot</TagBadge>
+                <TagBadge tone="butter">Snapshot</TagBadge>
               </div>
               <p className="text-[12px] text-slate">{new Date(version.createdAt).toLocaleString()}</p>
               {canRestore ? (
                 <ShadButton
                   variant="outline"
                   size="sm"
-                  className="mt-1 w-fit rounded-lg"
+                  className="mt-1 w-fit rounded-lg hover:border-[#fde047] hover:bg-[#fef08a]/30 hover:text-[#713f12] dark:hover:bg-[#713f12]/30 dark:hover:text-[#fef08a]"
                   onClick={() => void onRestore(version.id)}
                 >
                   Restore version
@@ -253,10 +253,10 @@ export function AiChatPane({
               key={cat}
               type="button"
               onClick={() => setCategory(cat)}
-              className={`rounded-[8px] px-3 py-1 text-[12px] font-medium transition-colors ${
+              className={`rounded-[8px] px-3 py-1 text-[12px] font-medium transition-all ${
                 category === cat 
-                  ? 'bg-inkwell-navy text-paper-white dark:bg-foreground dark:text-background' 
-                  : 'bg-ash-canvas text-slate hover:bg-warm-stone hover:text-inkwell-navy dark:bg-muted dark:text-muted-foreground'
+                  ? 'bg-[#fef08a]/90 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-[#713f12]/70 dark:text-[#fef08a] dark:ring-[#a16207]' 
+                  : 'bg-ash-canvas text-slate hover:bg-[#fef08a]/30 hover:text-[#713f12] dark:bg-muted dark:text-muted-foreground dark:hover:bg-[#713f12]/30 dark:hover:text-[#fef08a]'
               }`}
             >
               {cat}
@@ -271,13 +271,13 @@ export function AiChatPane({
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             placeholder="Describe a diagram..."
-            className="flex-1 rounded-[8px] border border-warm-stone bg-paper-white px-3 py-2 text-[14px] text-inkwell-navy shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] placeholder:text-slate focus-visible:border-inkwell-navy focus-visible:outline-none dark:border-border dark:bg-card dark:text-foreground"
+            className="flex-1 rounded-[8px] border border-warm-stone bg-paper-white px-3 py-2 text-[14px] text-inkwell-navy shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] placeholder:text-slate focus-visible:border-[#fde047] focus-visible:ring-1 focus-visible:ring-[#fde047] focus-visible:outline-none dark:border-border dark:bg-card dark:text-foreground dark:focus-visible:border-[#a16207]"
             disabled={loading}
           />
           <button 
             type="submit" 
             disabled={!prompt.trim() || loading} 
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-inkwell-navy text-paper-white shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] transition hover:bg-inkwell-navy/90 disabled:opacity-50"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-inkwell-navy text-paper-white shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)] transition hover:bg-[#713f12] hover:text-[#fef08a] dark:hover:bg-[#fef08a] dark:hover:text-[#713f12] disabled:opacity-50"
           >
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </button>
@@ -322,7 +322,7 @@ const SHAPE_CATEGORIES = [
   },
   {
     name: "9. UML - Structural Diagrams",
-    shapes: ["Class", "Class 2", "Interface", "Interface 2", "Provided/Required Interface", "Required Interface", "Object", "Entity", "Component", "Component with Attributes", "Module", "Package"],
+    shapes: ["Class", "Class 2", "Interface", "Interface 2", "Provided/Required Interface", "Required Interface", "Object", "Object:Type", "Entity", "Component", "Component with Attributes", "Module", "Package"],
   },
   {
     name: "10. UML - Use Case Diagrams",
@@ -330,7 +330,7 @@ const SHAPE_CATEGORIES = [
   },
   {
     name: "11. UML - Sequence Diagrams",
-    shapes: ["Object", "Activation Bar", "Found Message", "Found Message 1", "Synchronous Invocation", "Self Call", "Callback", "Return", "Destruction"],
+    shapes: ["Object", "Lifeline", "Activation Bar", "Found Message", "Found Message 1", "Synchronous Invocation", "Self Call", "Callback", "Return", "Destruction"],
   },
   {
     name: "12. UML - State / Activity Diagrams",
@@ -359,7 +359,7 @@ export function ShapesPane({
                   key={shape}
                   onClick={() => onSelectShape(shape)}
                   title={shape}
-                  className="group flex flex-col items-center justify-center gap-1 rounded-md border border-warm-stone/50 bg-ash-canvas/30 p-2 text-[9px] font-medium text-slate transition hover:bg-warm-stone hover:text-inkwell-navy dark:border-border dark:bg-card dark:hover:bg-muted dark:hover:text-foreground"
+                  className="group flex flex-col items-center justify-center gap-1 rounded-md border border-warm-stone/50 bg-ash-canvas/30 p-2 text-[9px] font-medium text-slate transition-all hover:bg-[#fef08a]/40 hover:text-[#713f12] hover:border-[#fde047]/60 dark:border-border dark:bg-card dark:hover:bg-[#713f12]/40 dark:hover:text-[#fef08a] dark:hover:border-[#a16207]/60"
                 >
                   <svg 
                     viewBox="0 0 100 100" 

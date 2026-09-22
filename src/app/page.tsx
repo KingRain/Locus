@@ -20,13 +20,13 @@ export default function HomePage() {
       </header>
       <main className="mx-auto max-w-[1200px] px-6 pb-24 pt-12">
         <FadeIn className="mx-auto max-w-[820px] text-center">
-          <p className="mb-4 text-[14px] font-medium uppercase tracking-[0.2em] text-slate">
+          <p className="mb-4 text-[14px] font-medium uppercase tracking-[0.2em] text-slate dark:text-muted-foreground">
             Real-time visual workspace
           </p>
-          <h1 className="font-display text-[48px] leading-[1.15] text-inkwell-navy md:text-[56px]">
+          <h1 className="font-display text-[48px] leading-[1.15] text-inkwell-navy dark:text-foreground md:text-[56px]">
             Draw diagrams your team can <span className="text-coral-emphasis">actually share</span>
           </h1>
-          <p className="mx-auto mt-6 max-w-[560px] text-[18px] leading-[1.5] text-slate">
+          <p className="mx-auto mt-6 max-w-[560px] text-[18px] leading-[1.5] text-slate dark:text-muted-foreground">
             Locus is a browser whiteboard for students and small teams — shapes, comments, live cursors, and version history without the enterprise fog.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
@@ -48,20 +48,20 @@ export default function HomePage() {
             { icon: Wifi, title: "Two-layer sync", body: "HTTPS for boards and sharing, WebSocket for live edits." },
           ].map(({ icon: Icon, title, body }) => (
             <StaggerItem key={title}>
-              <Card className="h-full ring-1 ring-foreground/8 transition hover:-translate-y-0.5 hover:shadow-md">
+              <Card className="h-full ring-1 ring-foreground/8 transition hover:-translate-y-0.5 hover:shadow-md dark:border-border dark:bg-card">
                 <CardHeader className="pb-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-mint-pulse/25 text-inkwell-navy">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-mint-pulse/25 text-inkwell-navy dark:bg-mint-pulse/20 dark:text-mint-pulse">
                     <Icon className="h-5 w-5" strokeWidth={1.75} />
                   </span>
-                  <CardTitle className="text-[16px]">{title}</CardTitle>
-                  <CardDescription className="text-[14px] leading-relaxed">{body}</CardDescription>
+                  <CardTitle className="text-[16px] text-foreground">{title}</CardTitle>
+                  <CardDescription className="text-[14px] leading-relaxed text-slate dark:text-muted-foreground">{body}</CardDescription>
                 </CardHeader>
               </Card>
             </StaggerItem>
           ))}
         </StaggerGrid>
 
-        <FadeIn delay={0.2} className="mx-auto mt-10 flex max-w-[720px] items-center justify-center gap-2 text-[14px] text-slate">
+        <FadeIn delay={0.2} className="mx-auto mt-10 flex max-w-[720px] items-center justify-center gap-2 text-[14px] text-slate dark:text-muted-foreground">
           <LayoutGrid className="h-4 w-4" strokeWidth={1.75} />
           UML, flowchart, ER, and architecture templates included
         </FadeIn>

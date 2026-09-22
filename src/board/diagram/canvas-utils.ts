@@ -196,3 +196,162 @@ export function getPathBounds(d: string): { x: number; y: number; width: number;
 export function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
+
+export function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const clean = hex.replace("#", "").trim();
+  if (clean.length === 3) {
+    return {
+      r: parseInt(clean.charAt(0) + clean.charAt(0), 16),
+      g: parseInt(clean.charAt(1) + clean.charAt(1), 16),
+      b: parseInt(clean.charAt(2) + clean.charAt(2), 16),
+    };
+  }
+  if (clean.length === 6) {
+    return {
+      r: parseInt(clean.slice(0, 2), 16),
+      g: parseInt(clean.slice(2, 4), 16),
+      b: parseInt(clean.slice(4, 6), 16),
+    };
+  }
+  return null;
+}
+
+export function rgbToHsl(r: number, g: number, b: number): { h: number; s: number; l: number } {
+  r /= 255;
+  g /= 255;
+  b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / d + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / d + 2;
+        break;
+      case b:
+        h = (r - g) / d + 4;
+        break;
+    }
+    h /= 6;
+  }
+  return { h, s, l };
+}
+
+export function hslToHex(h: number, s: number, l: number): string {
+  let r: number;
+  let g: number;
+  let b: number;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p: number, q: number, t: number) => {
+      let tc = t;
+      if (tc < 0) tc += 1;
+      if (tc > 1) tc -= 1;
+      if (tc < 1 / 6) return p + (q - p) * 6 * tc;
+      if (tc < 1 / 2) return q;
+      if (tc < 2 / 3) return p + (q - p) * (2 / 3 - tc) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  const toHex = (x: number) => Math.round(Math.max(0, Math.min(255, x * 255))).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+export function invertStrokeForDark(stroke: string, darkMode: boolean): string {
+  if (!darkMode || !stroke || stroke === "none" || stroke === "transparent") {
+    return stroke;
+  }
+  const lower = stroke.toLowerCase();
+  if (lower === "#151b31") return "#e8eaf2";
+  if (lower === "#000000" || lower === "#000" || lower === "#0a0a0a" || lower === "#141414") return "#ffffff";
+  if (lower === "#333333" || lower === "#333") return "#d1d5db";
+  if (lower === "#64748b") return "#94a3b8";
+  if (lower === "#e8eaf2") return "#e8eaf2";
+
+  const rgb = hexToRgb(stroke);
+  if (!rgb) return stroke;
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+
+  if (hsl.l < 0.35) {
+    return hslToHex(hsl.h, hsl.s, Math.min(0.92, 1 - hsl.l));
+  }
+  return stroke;
+}
+
+export function invertFillForDark(fill: string, darkMode: boolean): string {
+  if (!darkMode || !fill || fill === "none" || fill === "transparent") {
+    return fill;
+  }
+  const lower = fill.toLowerCase();
+  if (lower === "#ffffff" || lower === "#fff" || lower === "#fefefe" || lower === "#f8f9fa") {
+    return "#141414";
+  }
+  if (lower === "#f2f2f2" || lower === "#f5f5f4" || lower === "#e8e7e5" || lower === "#e7e5e4") {
+    return "#1f1f1f";
+  }
+  if (lower === "#151b31") {
+    return "#e8eaf2";
+  }
+  if (lower === "#000000" || lower === "#000") {
+    return "#f5f5f4";
+  }
+
+  // Sticky yellow tones
+  if (lower === "#fedf89" || lower === "#fef0c3" || lower === "#fef9e7") {
+    return "#382e14";
+  }
+  // Mint tones
+  if (lower === "#86e0c1" || lower === "#d4f5ea" || lower === "#a8ecd4") {
+    return "#17382d";
+  }
+  // Coral tones
+  if (lower === "#ff5858" || lower === "#ffe4e4" || lower === "#ffabab") {
+    return "#421616";
+  }
+
+  const rgb = hexToRgb(fill);
+  if (!rgb) return fill;
+  const hsl = rgbToHsl(rgb.r, rgb.g, rgb.b);
+
+  const newL = hsl.l > 0.5 ? Math.max(0.12, 1 - hsl.l) : Math.min(0.88, 1 - hsl.l);
+  return hslToHex(hsl.h, hsl.s, newL);
+}
+
+export function getTextColorForFill(effectiveFill: string, darkMode: boolean): string {
+  if (!effectiveFill || effectiveFill === "none" || effectiveFill === "transparent") {
+    return darkMode ? "#e8eaf2" : "#151b31";
+  }
+  const lower = effectiveFill.toLowerCase();
+  if (
+    lower === "#141414" ||
+    lower === "#1f1f1f" ||
+    lower === "#151b31" ||
+    lower === "#000000" ||
+    lower === "#382e14" ||
+    lower === "#17382d" ||
+    lower === "#421616"
+  ) {
+    return "#e8eaf2";
+  }
+  if (lower === "#ffffff" || lower === "#f2f2f2" || lower === "#f5f5f4" || lower === "#e8eaf2") {
+    return "#151b31";
+  }
+  const rgb = hexToRgb(effectiveFill);
+  if (!rgb) return darkMode ? "#e8eaf2" : "#151b31";
+  const lum = 0.299 * (rgb.r / 255) + 0.587 * (rgb.g / 255) + 0.114 * (rgb.b / 255);
+  return lum < 0.5 ? "#ffffff" : "#151b31";
+}

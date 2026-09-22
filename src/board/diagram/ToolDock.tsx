@@ -45,7 +45,7 @@ export function ToolDock({
   return (
     <div className="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center px-4 select-none">
       <div
-        className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-slate-200/80 bg-white/90 p-1.5 shadow-lg backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/90"
+        className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-warm-stone/80 bg-paper-white/95 p-1.5 shadow-[var(--shadow-stone)] backdrop-blur-md dark:border-border dark:bg-card/95 dark:shadow-[0_4px_24px_rgba(0,0,0,0.6)]"
         role="toolbar"
         aria-label="Drawing tools"
       >
@@ -70,8 +70,8 @@ export function ToolDock({
               onClick={() => onTool(id)}
               className={`grid h-10 w-10 place-items-center rounded-xl transition-all duration-150 ${
                 active
-                  ? "bg-[#fef08a]/80 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-[#713f12]/60 dark:text-[#fef08a] dark:ring-[#a16207]"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200 disabled:opacity-40"
+                  ? "bg-[#fef08a]/80 text-[#713f12] shadow-sm ring-1 ring-[#fde047] dark:bg-white dark:text-black dark:ring-0 dark:shadow-md"
+                  : "text-slate-600 hover:bg-ash-canvas hover:text-inkwell-navy dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-white disabled:opacity-40"
               }`}
             >
               <Icon

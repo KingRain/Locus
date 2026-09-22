@@ -6,16 +6,16 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --color-inkwell-navy: #151b31;
-  --color-coral-emphasis: #ff5858;
-  --color-mint-pulse: #86e0c1;
-  --color-butter-yellow: #fedf89;
-  --color-graphite: #333333;
-  --color-slate: #6d6f75;
-  --color-ash-canvas: #f2f2f2;
-  --color-paper-white: #ffffff;
-  --color-pure-ink: #000000;
-  --color-warm-stone: #e8e7e5;
+  --color-inkwell-navy: var(--color-inkwell-navy);
+  --color-coral-emphasis: var(--color-coral-emphasis);
+  --color-mint-pulse: var(--color-mint-pulse);
+  --color-butter-yellow: var(--color-butter-yellow);
+  --color-graphite: var(--color-graphite);
+  --color-slate: var(--color-slate);
+  --color-ash-canvas: var(--color-ash-canvas);
+  --color-paper-white: var(--color-paper-white);
+  --color-pure-ink: var(--color-pure-ink);
+  --color-warm-stone: var(--color-warm-stone);
   --font-sans: var(--font-sans);
   --font-display: "DM Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
   --text-caption: 12px;
@@ -147,6 +147,16 @@ textarea:user-invalid + .field-error {
 }
 
 :root {
+  --color-inkwell-navy: #151b31;
+  --color-coral-emphasis: #ff5858;
+  --color-mint-pulse: #86e0c1;
+  --color-butter-yellow: #fedf89;
+  --color-graphite: #333333;
+  --color-slate: #6d6f75;
+  --color-ash-canvas: #f2f2f2;
+  --color-paper-white: #ffffff;
+  --color-pure-ink: #000000;
+  --color-warm-stone: #e8e7e5;
   --background: #f2f2f2;
   --foreground: #151b31;
   --card: #ffffff;

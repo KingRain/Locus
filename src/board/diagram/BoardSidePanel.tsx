@@ -55,20 +55,20 @@ export function BoardSidePanel({
           transition={{ type: "spring", damping: 30, stiffness: 320 }}
           className={cn(
             "absolute right-3 top-[64px] bottom-3 z-30 flex w-[min(100%,360px)] flex-col overflow-hidden",
-            "rounded-2xl border border-warm-stone/80 bg-paper-white/95 shadow-[0_8px_32px_rgba(21,27,49,0.12)] backdrop-blur-md",
-            "dark:border-border/50 dark:bg-card/95 dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)]",
+            "rounded-2xl border border-warm-stone/80 bg-paper-white/95 shadow-[0_8px_32px_rgba(21,27,49,0.12)] backdrop-blur-md ring-1 ring-[#fde047]/30",
+            "dark:border-border/50 dark:bg-card/95 dark:shadow-[0_8px_32px_rgba(0,0,0,0.5)] dark:ring-[#a16207]/30",
           )}
         >
-          <div className="flex items-center justify-between gap-2 border-b border-warm-stone/70 px-3.5 py-3">
+          <div className="flex items-center justify-between gap-2 border-b border-warm-stone/70 px-3.5 py-3 dark:border-border/70">
             <div className="flex items-center gap-2.5">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-ash-canvas text-inkwell-navy dark:bg-card dark:text-foreground">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#fef08a]/70 text-[#713f12] ring-1 ring-[#fde047]/70 dark:bg-[#713f12]/50 dark:text-[#fef08a] dark:ring-[#a16207]/60">
                 <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
               </span>
               <div>
                 <p className="text-[14px] font-bold text-inkwell-navy dark:text-foreground">{meta.title}</p>
               </div>
             </div>
-            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel" className="h-7 w-7">
+            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close panel" className="h-7 w-7 text-slate hover:bg-[#fef08a]/30 hover:text-[#713f12] dark:hover:bg-[#713f12]/30 dark:hover:text-[#fef08a]">
               <X className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -94,8 +94,11 @@ export function PanelSection({
     <section className={cn("grid gap-3", className)}>
       {title ? (
         <>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate">{title}</p>
-          <Separator className="bg-warm-stone/70" />
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#fde047] dark:bg-[#a16207]" />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-400">{title}</p>
+          </div>
+          <Separator className="bg-warm-stone/70 dark:bg-border/70" />
         </>
       ) : null}
       {children}

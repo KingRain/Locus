@@ -96,7 +96,7 @@ export function ExportModal({
         {/* Content Body */}
         <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-5">
           {/* SVG Live Preview (Left / Top) */}
-          <div className="col-span-3 flex flex-col items-center justify-center bg-ash-canvas/50 p-6 dark:bg-slate-900/50">
+          <div className="col-span-3 flex flex-col items-center justify-center bg-ash-canvas/50 p-6 dark:bg-black/40">
             <div className="relative flex max-h-[360px] w-full items-center justify-center overflow-auto rounded-xl border border-warm-stone/60 bg-paper-white p-4 shadow-sm dark:border-border/60 dark:bg-card">
               <div
                 className="max-h-[320px] max-w-full overflow-hidden object-contain"
